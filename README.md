@@ -183,6 +183,10 @@ uvicorn backend.app.main:app --host 0.0.0.0 --port 8000 --reload
 
 Endpoints:
 - **Health Check:** `http://localhost:8000/health` (and `http://localhost:8000/api/v1/health`)
+- **Document Management:**
+  - `POST /documents` (Multipart PDF upload with MinIO persistence & audit logging, Admin only)
+  - `GET /documents` (List documents with metadata & category filtering)
+  - `DELETE /documents/{id}` (Cascading document removal & audit logging, Admin only)
 - **Swagger Documentation:** `http://localhost:8000/docs`
 - **ReDoc Documentation:** `http://localhost:8000/redoc`
 - **OpenAPI 3.x Schema:** `http://localhost:8000/openapi.json`

@@ -21,6 +21,7 @@ from backend.app.core.errors import (
 )
 from backend.app.api.router import api_router
 from backend.app.api.health import router as health_router
+from backend.app.api.documents import router as documents_router
 
 settings = get_settings()
 
@@ -144,8 +145,9 @@ def create_app() -> FastAPI:
             ).model_dump(),
         )
 
-    # 3. Mount Direct Health Endpoint at Root (/health) per requirement
+    # 3. Mount Direct Endpoints at Root (/health, /documents) per requirements
     app.include_router(health_router, prefix="", tags=["Health"])
+    app.include_router(documents_router, prefix="", tags=["Documents"])
 
     # 4. Mount Versioned API Router (/api/v1)
     app.include_router(api_router, prefix=settings.API_V1_PREFIX)

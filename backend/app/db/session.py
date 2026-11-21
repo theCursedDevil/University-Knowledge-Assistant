@@ -13,18 +13,24 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy import text
 
+from sqlalchemy.pool import NullPool, AsyncAdaptedQueuePool
+
 from backend.app.core.config import get_settings
 from backend.app.core.logging import logger
 
 settings = get_settings()
 
-# Asynchronous engine for primary read-write database
+# Asynchronous engine for primary read-write database.
+# NullPool is used in testing/dev to ensure each event loop owns its asyncpg connection.
+pool_class = NullPool if settings.ENVIRONMENT in ("testing", "development") else AsyncAdaptedQueuePool
+
+engine_kwargs = {"echo": settings.DEBUG and settings.ENVIRONMENT == "development", "poolclass": pool_class}
+if pool_class is AsyncAdaptedQueuePool:
+    engine_kwargs.update({"pool_size": 10, "max_overflow": 20, "pool_pre_ping": True})
+
 engine: AsyncEngine = create_async_engine(
     settings.async_database_url,
-    echo=settings.DEBUG and settings.ENVIRONMENT == "development",
-    pool_size=10,
-    max_overflow=20,
-    pool_pre_ping=True,
+    **engine_kwargs,
 )
 
 # Async session factory

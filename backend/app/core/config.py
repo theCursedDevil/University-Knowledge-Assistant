@@ -93,6 +93,10 @@ class Settings(BaseSettings):
     MINIO_SECRET_KEY: str = Field(default="minioadmin")
     MINIO_BUCKET_NAME: str = Field(default="university-documents")
     MINIO_SECURE: bool = Field(default=False)
+    MAX_UPLOAD_SIZE_BYTES: int = Field(
+        default=25 * 1024 * 1024,
+        description="Maximum allowed file upload size in bytes (default: 25 MB).",
+    )
 
     # Keycloak OIDC Authentication
     KEYCLOAK_URL: str = Field(default="http://localhost:8080")
