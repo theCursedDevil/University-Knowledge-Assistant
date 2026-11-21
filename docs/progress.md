@@ -47,14 +47,14 @@
 
 | JIRA Key | Epic Summary | Phase Scope | Status |
 |---|---|---|:---:|
-| `UKA-1` | `[EPIC 1] Project Foundation` | Phases 1–4 | In Progress |
-| `UKA-3` | `[EPIC 2] Document Ingestion` | Phase 5 | To Do |
-| `UKA-4` | `[EPIC 3] Vector Database` | Phase 6 | To Do |
-| `UKA-5` | `[EPIC 4] RAG Pipeline` | Phase 6 | To Do |
-| `UKA-6` | `[EPIC 5] Citation System` | Phases 6–7 | In Progress |
-| `UKA-7` | `[EPIC 6] Conversational Interface` | Phase 7 | In Progress |
+| `UKA-1` | `[EPIC 1] Project Foundation` | Phases 1–4 | ✅ **Done** |
+| `UKA-3` | `[EPIC 2] Document Ingestion` | Phase 5 | ✅ **Done** |
+| `UKA-4` | `[EPIC 3] Vector Database` | Phase 6 | ✅ **Done** |
+| `UKA-5` | `[EPIC 4] RAG Pipeline` | Phase 6 | ✅ **Done** |
+| `UKA-6` | `[EPIC 5] Citation System` | Phases 6–7 | ✅ **Done** |
+| `UKA-7` | `[EPIC 6] Conversational Interface` | Phase 7 | ✅ **Done** |
 | `UKA-8` | `[EPIC 7] Authentication and User Management` | Phase 8 | To Do |
-| `UKA-9` | `[EPIC 8] Admin Console` | Phases 5, 7 | To Do |
+| `UKA-9` | `[EPIC 8] Admin Console` | Phases 5, 7 | ✅ **Done** |
 | `UKA-10` | `[EPIC 9] Database Synchronization` | Phase 9 | To Do |
 | `UKA-11` | `[EPIC 10] Redis Caching and Locking` | Phase 9 | To Do |
 | `UKA-12` | `[EPIC 11] Dockerization` | Phase 10 | To Do |
