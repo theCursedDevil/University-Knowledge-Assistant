@@ -1,0 +1,106 @@
+# Project Development Progress Tracking
+
+> **Project:** Generative AI-Based University Knowledge Assistant  
+> **Student:** Aashu Kumar (BT23GCS449)  
+> **Current Sprint:** Sprint 1 (Weeks 1–2: Foundation & Ingestion)  
+> **Last Updated:** 2026-11-21  
+
+---
+
+## 1. Executive Status Dashboard
+
+| Metric | Status | Details |
+|---|:---:|---|
+| **Current Phase** | **Phase 2 (Git + JIRA Setup)** | Initial repository structure, hygiene configuration, and JIRA backlog initialization. |
+| **Completed Phases** | **Phase 1** | Planning & Requirements (SRS, SDD, Roadmap, Decisions, Traceability Matrix). |
+| **Pending Phases** | **Phases 3–14** | Implementation, RAG core, chat UI, OAuth, replication sync, Docker, K8s, CI/CD, testing. |
+| **Blocked Items** | **None** | All integrations (GitHub MCP, JIRA TWG) verified and operational. |
+| **Active JIRA Board** | [`UKA`](https://nightbladeninja.atlassian.net/jira/software/projects/UKA/boards) | 14 Epics created; Sprint 1 implementation tasks populated. |
+| **Latest Test Status** | **PASSED** | Verification tests for requirements matrix, directory skeleton, and git hygiene verified clean. |
+
+---
+
+## 2. Phase-by-Phase Progress Tracking
+
+| Phase # | Phase Name | Tier | Status | Relevant JIRA Tickets | Completion Date |
+|:---:|---|:---:|:---:|---|:---:|
+| **1** | **Planning & Requirements Baseline** | Foundation | ✅ **COMPLETED** | `UKA-1` | 2026-11-21 |
+| **2** | **Git & JIRA Setup, Repo Skeleton** | Foundation | 🟡 **IN PROGRESS** | `UKA-1`, `UKA-16` | Expected: Current |
+| **3** | **Backend Skeleton (FastAPI)** | Tier 1 (MVP) | ⏳ PENDING | `UKA-1`, `UKA-17` | Sprint 1 |
+| **4** | **Database Schema & Migrations** | Tier 1 (MVP) | ⏳ PENDING | `UKA-1`, `UKA-18` | Sprint 1 |
+| **5** | **Document Ingestion Pipeline** | Tier 1 (MVP) | ⏳ PENDING | `UKA-3`, `UKA-19` to `UKA-22` | Sprint 1 |
+| **6** | **RAG Core Engine (Embeddings & Groq)** | Tier 1 (MVP) | ⏳ PENDING | `UKA-4`, `UKA-5`, `UKA-6` | Sprint 2 |
+| **7** | **Conversational Interface (Next.js)** | Tier 1 (MVP) | ⏳ PENDING | `UKA-7`, `UKA-8` | Sprint 2 |
+| **8** | **OAuth 2.0 / OIDC & RBAC (Keycloak)** | Tier 2 (Graded) | ⏳ PENDING | `UKA-8` | Sprint 3 |
+| **9** | **Database Synchronization & Replicas** | Tier 2 (Graded) | ⏳ PENDING | `UKA-10`, `UKA-11` | Sprint 3 |
+| **10** | **Dockerization (Full Compose Stack)** | Tier 2 (Graded) | ⏳ PENDING | `UKA-12` | Sprint 4 |
+| **11** | **Kubernetes Deployment (Minikube)** | Tier 2 (Graded) | ⏳ PENDING | `UKA-13` | Sprint 4 |
+| **12** | **CI/CD Pipeline (GitHub Actions)** | Tier 2 (Graded) | ⏳ PENDING | `UKA-14` | Sprint 4 |
+| **13** | **Testing & Quality Assurance** | Tier 2 (Graded) | ⏳ PENDING | `UKA-15` | Sprint 4 |
+| **14** | **Demonstration Preparation & Polish** | Tier 3 (Advanced)| ⏳ PENDING | `UKA-15` | Sprint 4 |
+
+---
+
+## 3. Active JIRA Backlog Reference
+
+### Epics (Top-Level Tracking Containers)
+
+| JIRA Key | Epic Summary | Phase Scope | Status |
+|---|---|---|:---:|
+| `UKA-1` | `[EPIC 1] Project Foundation` | Phases 1–4 | In Progress |
+| `UKA-3` | `[EPIC 2] Document Ingestion` | Phase 5 | To Do |
+| `UKA-4` | `[EPIC 3] Vector Database` | Phase 6 | To Do |
+| `UKA-5` | `[EPIC 4] RAG Pipeline` | Phase 6 | To Do |
+| `UKA-6` | `[EPIC 5] Citation System` | Phases 6–7 | To Do |
+| `UKA-7` | `[EPIC 6] Conversational Interface` | Phase 7 | To Do |
+| `UKA-8` | `[EPIC 7] Authentication and User Management` | Phase 8 | To Do |
+| `UKA-9` | `[EPIC 8] Admin Console` | Phases 5, 7 | To Do |
+| `UKA-10` | `[EPIC 9] Database Synchronization` | Phase 9 | To Do |
+| `UKA-11` | `[EPIC 10] Redis Caching and Locking` | Phase 9 | To Do |
+| `UKA-12` | `[EPIC 11] Dockerization` | Phase 10 | To Do |
+| `UKA-13` | `[EPIC 12] Kubernetes Deployment` | Phase 11 | To Do |
+| `UKA-14` | `[EPIC 13] CI/CD` | Phase 12 | To Do |
+| `UKA-15` | `[EPIC 14] Testing and Monitoring` | Phases 13–14 | To Do |
+
+### Active Implementation Tasks (Sprint 1)
+
+| JIRA Key | Task Summary | Parent Epic | Priority | Status |
+|---|---|---|:---:|:---:|
+| `UKA-16` | Repository Setup, Hygiene, and Environment Configuration | `UKA-1` | Must Have | **In Progress** |
+| `UKA-17` | FastAPI Backend Application Factory and Healthcheck Endpoint | `UKA-1` | Must Have | To Do |
+| `UKA-18` | SQLAlchemy Relational Models and Alembic Async Migrations | `UKA-1` | Must Have | To Do |
+| `UKA-19` | Multipart Document Upload API and MinIO Storage | `UKA-3` | Must Have | To Do |
+| `UKA-20` | PyMuPDF Text Extraction with Page Indexing and Header Detection | `UKA-3` | Must Have | To Do |
+| `UKA-21` | Recursive Character Text Chunking and Normalization | `UKA-3` | Must Have | To Do |
+| `UKA-22` | Document Listing and Cascading Deletion Saga | `UKA-3` | Must Have | To Do |
+| `UKA-23` | Sentence Transformers Embedding Client Integration | `UKA-4` | Must Have | To Do |
+| `UKA-24` | Qdrant Collection Setup and Vector Batch Indexing | `UKA-4` | Must Have | To Do |
+| `UKA-25` | Top-K Cosine Similarity Vector Retrieval | `UKA-4` | Must Have | To Do |
+| `UKA-26` | Retrieval Confidence Threshold Gating and Fallback | `UKA-5` | Must Have | To Do |
+| `UKA-27` | Grounded Prompt Construction with XML Context Delimiters | `UKA-5` | Must Have | To Do |
+| `UKA-28` | Groq API LLM Client and Token-by-Token Streaming | `UKA-5` | Must Have | To Do |
+| `UKA-29` | Deterministic Citation Resolver from Verified Chunks | `UKA-6` | Must Have | To Do |
+| `UKA-30` | Frontend Citation Display and Source Document Viewer | `UKA-6` | Should Have | To Do |
+| `UKA-31` | Next.js 14 Web Application Layout and Grayscale Theme | `UKA-7` | Must Have | To Do |
+| `UKA-32` | Chat Interface with Token-by-Token SSE Stream Consumption | `UKA-7` | Must Have | To Do |
+| `UKA-33` | Multi-Turn Conversation History and Sidebar Management | `UKA-7` | Must Have | To Do |
+| `UKA-34` | UI System States Implementation (Loading, Empty, Error, Forbidden) | `UKA-7` | Should Have | To Do |
+
+---
+
+## 4. Verification & Testing Status
+
+| Test Identifier | Scope | Status | Notes |
+|---|---|:---:|---|
+| `TEST-PLAN-001` | Architecture & Requirements Audit | ✅ **PASSED** | 153 requirements mapped in `docs/requirements-matrix.md`. |
+| `TEST-HYGIENE-001` | `.gitignore` & Secrets Audit | ✅ **PASSED** | Secrets and virtual environments excluded from git. |
+| `TEST-JIRA-001` | JIRA Board & API Verification | ✅ **PASSED** | Project `UKA` online on `nightbladeninja.atlassian.net`. |
+| `TEST-UNIT-001` | Backend Unit Test Suite | ⏳ Pending | Scheduled for Phase 3 (`UKA-17`). |
+| `TEST-DOC-001` | Document Ingestion Integration | ⏳ Pending | Scheduled for Phase 5 (`UKA-19`). |
+| `TEST-RAG-001` | RAG Answer & Fallback Evaluation | ⏳ Pending | Scheduled for Phase 6 (`UKA-26`, `UKA-28`). |
+| `TEST-AUTH-001` | Keycloak JWT Authentication | ⏳ Pending | Scheduled for Phase 8 (`UKA-8`). |
+| `TEST-DB-001` | Multi-Replica Read-After-Write Sync | ⏳ Pending | Scheduled for Phase 9 (`UKA-10`). |
+| `TEST-CONC-001` | Optimistic Locking 409 Conflict | ⏳ Pending | Scheduled for Phase 9 (`UKA-10`). |
+| `TEST-DOCKER-001` | 9-Service Docker Compose Boot | ⏳ Pending | Scheduled for Phase 10 (`UKA-12`). |
+| `TEST-K8S-001` | Kubernetes Zero-Downtime Rolling Update | ⏳ Pending | Scheduled for Phase 11 (`UKA-13`). |
+| `TEST-CICD-001` | GitHub Actions PR Gate Enforcement | ⏳ Pending | Scheduled for Phase 12 (`UKA-14`). |
