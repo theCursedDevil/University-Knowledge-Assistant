@@ -167,7 +167,33 @@ Follows the [Conventional Commits](https://www.conventionalcommits.org/) specifi
    ```
 3. Populate secrets in `.env` (notably `GROQ_API_KEY`).
 
-### Running the Stack
+### Running the Backend Locally
+To run the FastAPI backend server directly for local development:
+```bash
+# 1. Create and activate a Python virtual environment
+python3 -m venv .venv
+source .venv/bin/activate
+
+# 2. Install backend dependencies
+pip install -r backend/requirements.txt
+
+# 3. Start Uvicorn ASGI server
+uvicorn backend.app.main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+Endpoints:
+- **Health Check:** `http://localhost:8000/health` (and `http://localhost:8000/api/v1/health`)
+- **Swagger Documentation:** `http://localhost:8000/docs`
+- **ReDoc Documentation:** `http://localhost:8000/redoc`
+- **OpenAPI 3.x Schema:** `http://localhost:8000/openapi.json`
+
+### Running Backend Tests
+Execute the automated test suite using `pytest`:
+```bash
+PYTHONPATH=. pytest backend/tests -v
+```
+
+### Running the Full Stack (Docker Compose)
 Bring up the entire local infrastructure via Docker Compose:
 ```bash
 docker-compose up -d
