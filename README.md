@@ -191,6 +191,18 @@ Endpoints:
 - **ReDoc Documentation:** `http://localhost:8000/redoc`
 - **OpenAPI 3.x Schema:** `http://localhost:8000/openapi.json`
 
+### Implemented API Endpoints
+
+| Method | Path | Purpose | Auth / Access |
+|---|---|---|---|
+| `GET` | `/health` / `/api/v1/health` | Service health status & external service connectivity | Public |
+| `GET` | `/docs` / `/redoc` | Swagger and ReDoc interactive OpenAPI documentation | Public |
+| `POST` | `/api/v1/documents` | Multipart PDF upload, MinIO storage, and optional auto-indexing | Admin (`X-Dev-Role: admin`) |
+| `GET` | `/api/v1/documents` | List uploaded documents with category filtering and pagination | User (`X-Dev-Role`) |
+| `GET` | `/api/v1/documents/{id}/chunks` | Retrieve chunk metadata, page provenance, and vector IDs | User (`X-Dev-Role`) |
+| `POST` | `/api/v1/documents/{id}/process` | Trigger synchronous PDF extraction, chunking, and Qdrant indexing | Admin (`X-Dev-Role: admin`) |
+| `DELETE` | `/api/v1/documents/{id}` | Cascading deletion across MinIO, Qdrant vectors, and PostgreSQL | Admin (`X-Dev-Role: admin`) |
+
 ### Database Migrations (Alembic)
 Manage and apply PostgreSQL database schema migrations:
 ```bash

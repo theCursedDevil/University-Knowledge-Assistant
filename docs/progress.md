@@ -11,12 +11,12 @@
 
 | Metric | Status | Details |
 |---|:---:|---|
-| **Current Phase** | **Phase 5 (Document Ingestion Pipeline)** | MinIO storage & Document APIs completed (`UKA-19`, `UKA-22`). Text extraction & chunking pending (`UKA-20`, `UKA-21`). |
-| **Completed Phases** | **Phases 1, 2, 3 & 4** | Planning, Git/JIRA Setup, Backend Skeleton, PostgreSQL Schema & Alembic Migrations (`UKA-16`, `UKA-17`, `UKA-18`). |
-| **Pending Phases** | **Phases 5–14** | Ingestion pipeline (chunking/extraction), RAG core, chat UI, OAuth, replication sync, Docker, K8s, CI/CD, testing. |
-| **Blocked Items** | **None** | All integrations (GitHub MCP, JIRA TWG, MinIO, PostgreSQL) verified and operational. |
-| **Active JIRA Board** | [`UKA`](https://nightbladeninja.atlassian.net/jira/software/projects/UKA/boards) | 14 Epics created; Document APIs validated with 24 passing automated tests. |
-| **Latest Test Status** | **PASSED** | 24/24 backend, schema, and document API tests passed (`TEST-UNIT-001`, `TEST-SCHEMA-001`, `TEST-DOC-001`). |
+| **Current Phase** | **Phase 5 (Document Ingestion Pipeline)** | Completed: MinIO storage, Document APIs (`UKA-19`, `UKA-22`), PyMuPDF extraction, LangChain chunking, SentenceTransformers embeddings, Qdrant indexing (`UKA-20`, `UKA-21`). |
+| **Completed Phases** | **Phases 1, 2, 3, 4 & 5** | Planning, Git/JIRA Setup, Backend Skeleton, PostgreSQL Schema, Document Pipeline (`UKA-16` through `UKA-22`). |
+| **Pending Phases** | **Phases 6–14** | RAG core engine (`UKA-4`, `UKA-5`), chat UI, OAuth, replication sync, Docker, K8s, CI/CD, testing. |
+| **Blocked Items** | **None** | All integrations (GitHub MCP, JIRA TWG, MinIO, PostgreSQL, Qdrant) verified and operational. |
+| **Active JIRA Board** | [`UKA`](https://nightbladeninja.atlassian.net/jira/software/projects/UKA/boards) | 14 Epics created; Pipeline validated with 34 passing automated tests. |
+| **Latest Test Status** | **PASSED** | 34/34 backend, schema, document API, and RAG pipeline tests passed (`TEST-UNIT-001`, `TEST-SCHEMA-001`, `TEST-DOC-001`, `TEST-PIPE-001`). |
 
 ---
 
@@ -28,7 +28,7 @@
 | **2** | **Git & JIRA Setup, Repo Skeleton** | Foundation | ✅ **COMPLETED** | `UKA-1`, `UKA-16` | 2026-11-21 |
 | **3** | **Backend Skeleton (FastAPI)** | Tier 1 (MVP) | ✅ **COMPLETED** | `UKA-1`, `UKA-17` | 2026-11-21 |
 | **4** | **Database Schema & Migrations** | Tier 1 (MVP) | ✅ **COMPLETED** | `UKA-1`, `UKA-18` | 2026-11-21 |
-| **5** | **Document Ingestion Pipeline** | Tier 1 (MVP) | 🟡 **IN PROGRESS** | `UKA-3`, `UKA-19` to `UKA-22` | Sprint 1 |
+| **5** | **Document Ingestion Pipeline** | Tier 1 (MVP) | ✅ **COMPLETED** | `UKA-3`, `UKA-19` to `UKA-22` | 2026-11-21 |
 | **6** | **RAG Core Engine (Embeddings & Groq)** | Tier 1 (MVP) | ⏳ PENDING | `UKA-4`, `UKA-5`, `UKA-6` | Sprint 2 |
 | **7** | **Conversational Interface (Next.js)** | Tier 1 (MVP) | ⏳ PENDING | `UKA-7`, `UKA-8` | Sprint 2 |
 | **8** | **OAuth 2.0 / OIDC & RBAC (Keycloak)** | Tier 2 (Graded) | ⏳ PENDING | `UKA-8` | Sprint 3 |
@@ -70,11 +70,11 @@
 | `UKA-17` | FastAPI Backend Application Factory and Healthcheck Endpoint | `UKA-1` | Must Have | ✅ **Done** |
 | `UKA-18` | SQLAlchemy Relational Models and Alembic Async Migrations | `UKA-1` | Must Have | ✅ **Done** |
 | `UKA-19` | Multipart Document Upload API and MinIO Storage | `UKA-3` | Must Have | ✅ **Done** |
-| `UKA-20` | PyMuPDF Text Extraction with Page Indexing and Header Detection | `UKA-3` | Must Have | 🟡 **In Progress** |
-| `UKA-21` | Recursive Character Text Chunking and Normalization | `UKA-3` | Must Have | To Do |
+| `UKA-20` | PyMuPDF Text Extraction with Page Indexing and Header Detection | `UKA-3` | Must Have | ✅ **Done** |
+| `UKA-21` | Recursive Character Text Chunking and Normalization | `UKA-3` | Must Have | ✅ **Done** |
 | `UKA-22` | Document Listing and Cascading Deletion Saga | `UKA-3` | Must Have | ✅ **Done** |
-| `UKA-23` | Sentence Transformers Embedding Client Integration | `UKA-4` | Must Have | To Do |
-| `UKA-24` | Qdrant Collection Setup and Vector Batch Indexing | `UKA-4` | Must Have | To Do |
+| `UKA-23` | Sentence Transformers Embedding Client Integration | `UKA-4` | Must Have | ✅ **Done** |
+| `UKA-24` | Qdrant Collection Setup and Vector Batch Indexing | `UKA-4` | Must Have | ✅ **Done** |
 | `UKA-25` | Top-K Cosine Similarity Vector Retrieval | `UKA-4` | Must Have | To Do |
 | `UKA-26` | Retrieval Confidence Threshold Gating and Fallback | `UKA-5` | Must Have | To Do |
 | `UKA-27` | Grounded Prompt Construction with XML Context Delimiters | `UKA-5` | Must Have | To Do |
@@ -98,6 +98,7 @@
 | `TEST-UNIT-001` | Backend Unit Test Suite | ✅ **PASSED** | 10 unit tests passing (health, docs, schemas, custom errors). |
 | `TEST-SCHEMA-001` | PostgreSQL 16 Schema & Migrations | ✅ **PASSED** | 5 integration tests passing (tables, cascades, check constraints, live DB probe). |
 | `TEST-DOC-001` | Document Ingestion Integration | ✅ **PASSED** | 9 tests passing (upload, MinIO storage, MIME/magic validation, 413 limit, list, delete, audit). |
+| `TEST-PIPE-001` | PDF Processing & Vector Indexing | ✅ **PASSED** | 10 tests passing (PyMuPDF extraction, cleaning, chunking, all-MiniLM-L6-v2 embeddings, Qdrant vectors, end-to-end status lifecycle). |
 | `TEST-RAG-001` | RAG Answer & Fallback Evaluation | ⏳ Pending | Scheduled for Phase 6 (`UKA-26`, `UKA-28`). |
 | `TEST-AUTH-001` | Keycloak JWT Authentication | ⏳ Pending | Scheduled for Phase 8 (`UKA-8`). |
 | `TEST-DB-001` | Multi-Replica Read-After-Write Sync | ⏳ Pending | Scheduled for Phase 9 (`UKA-10`). |

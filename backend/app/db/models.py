@@ -107,7 +107,7 @@ class Document(Base):
 
     __table_args__ = (
         CheckConstraint(
-            "status IN ('processing', 'indexed', 'failed')", name="ck_document_status"
+            "status IN ('processing', 'ready', 'indexed', 'failed')", name="ck_document_status"
         ),
     )
 

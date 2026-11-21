@@ -12,6 +12,7 @@ from datetime import datetime
 from typing import List, Optional
 from fastapi import (
     APIRouter,
+    BackgroundTasks,
     Depends,
     File,
     Form,
@@ -32,8 +33,10 @@ from backend.app.core.errors import (
 from backend.app.core.logging import logger
 from backend.app.core.auth_dev import get_current_user, require_admin
 from backend.app.db.session import get_db
-from backend.app.db.models import User, Document, AuditLog
+from backend.app.db.models import User, Document, DocumentChunkMeta, AuditLog
 from backend.app.services.storage import storage_service
+from backend.app.rag.pipeline import process_document, ProcessingResult
+from backend.app.rag.vector_store import vector_store
 
 settings = get_settings()
 router = APIRouter()
@@ -76,6 +79,19 @@ class DocumentDeleteResponse(BaseModel):
     id: uuid.UUID
 
 
+class DocumentChunkResponse(BaseModel):
+    """Schema for document chunk metadata linking source page and vector point."""
+
+    id: uuid.UUID
+    vector_id: str
+    chunk_index: int
+    page: Optional[int] = None
+    section: Optional[str] = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 @router.post(
     "/documents",
     response_model=DocumentUploadResponse,
@@ -85,9 +101,11 @@ class DocumentDeleteResponse(BaseModel):
     tags=["Documents"],
 )
 async def upload_document(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(..., description="PDF document file to upload."),
     category: str = Form(..., description="Document category (e.g. 'Academic', 'Admissions', 'Hostel', 'Regulations')."),
     title: Optional[str] = Form(default=None, description="Optional custom document title."),
+    auto_process: bool = Query(default=True, description="Automatically trigger processing pipeline in background."),
     current_user: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> DocumentUploadResponse:
@@ -180,6 +198,9 @@ async def upload_document(
         await db.rollback()
         raise
 
+    if auto_process:
+        background_tasks.add_task(process_document, doc_id)
+
     logger.info("Document successfully uploaded: id=%s title='%s' category='%s'", doc_id, doc_title, category)
     return DocumentUploadResponse(
         id=document.id,
@@ -190,6 +211,54 @@ async def upload_document(
         version=document.version,
         created_at=document.created_at,
     )
+
+
+@router.post(
+    "/documents/{id}/process",
+    response_model=ProcessingResult,
+    status_code=status.HTTP_200_OK,
+    summary="Trigger Document Ingestion Pipeline",
+    description="Synchronously runs PDF extraction, chunking, embedding generation, and vector indexing for the given document. Administrator role required.",
+    tags=["Documents"],
+)
+async def trigger_document_processing(
+    id: uuid.UUID,
+    current_user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> ProcessingResult:
+    """Executes the ingestion pipeline for a document."""
+    return await process_document(id, session=db)
+
+
+@router.get(
+    "/documents/{id}/chunks",
+    response_model=List[DocumentChunkResponse],
+    status_code=status.HTTP_200_OK,
+    summary="Get Document Chunks Metadata",
+    description="Lists all indexed chunks and page provenance for a given document.",
+    tags=["Documents"],
+)
+async def get_document_chunks(
+    id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> List[DocumentChunkResponse]:
+    """Retrieves chunk metadata associated with the document from PostgreSQL."""
+    doc_stmt = select(Document).where(Document.id == id)
+    doc_res = await db.execute(doc_stmt)
+    if not doc_res.scalar_one_or_none():
+        raise NotFoundError(
+            message=f"Document with ID '{id}' not found.",
+            details={"document_id": str(id)},
+        )
+
+    stmt = (
+        select(DocumentChunkMeta)
+        .where(DocumentChunkMeta.document_id == id)
+        .order_by(DocumentChunkMeta.chunk_index.asc())
+    )
+    result = await db.execute(stmt)
+    return list(result.scalars().all())
 
 
 @router.get(
@@ -223,7 +292,7 @@ async def list_documents(
     response_model=DocumentDeleteResponse,
     status_code=status.HTTP_200_OK,
     summary="Delete Document",
-    description="Deletes a document from MinIO object storage and PostgreSQL, cascading to chunk metadata. Administrator role required.",
+    description="Deletes a document from MinIO object storage and PostgreSQL, cascading to chunk metadata and vector points. Administrator role required.",
     tags=["Documents"],
 )
 async def delete_document(
@@ -231,7 +300,7 @@ async def delete_document(
     current_user: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> DocumentDeleteResponse:
-    """Executes cascading deletion across MinIO and PostgreSQL with audit trail logging."""
+    """Executes cascading deletion across MinIO, Qdrant, and PostgreSQL with audit trail logging."""
     stmt = select(Document).where(Document.id == id)
     result = await db.execute(stmt)
     document = result.scalar_one_or_none()
@@ -247,7 +316,13 @@ async def delete_document(
     if storage_service.file_exists(storage_path):
         storage_service.delete_file(storage_path)
 
-    # 2. Record audit log entry
+    # 2. Remove vector points from Qdrant
+    try:
+        vector_store.delete_document_vectors(id)
+    except Exception as exc:
+        logger.warning("Failed to delete Qdrant vectors for doc %s: %s", id, exc)
+
+    # 3. Record audit log entry
     audit_entry = AuditLog(
         user_id=current_user.id,
         action="DOCUMENT_DELETE",
@@ -257,7 +332,7 @@ async def delete_document(
     )
     db.add(audit_entry)
 
-    # 3. Delete from database (cascades to document_chunks_meta)
+    # 4. Delete from database (cascades to document_chunks_meta)
     await db.delete(document)
     await db.commit()
 

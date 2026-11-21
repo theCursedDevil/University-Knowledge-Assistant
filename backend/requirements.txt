@@ -12,6 +12,12 @@ greenlet>=3.0.0,<4.0.0
 alembic>=1.13.1,<1.14.0
 minio>=7.2.0,<8.0.0
 
+# Document Ingestion & RAG
+pymupdf>=1.24.0,<2.0.0
+langchain-text-splitters>=0.2.0,<0.4.0
+sentence-transformers>=3.0.0,<4.0.0
+qdrant-client>=1.9.0,<2.0.0
+
 # Environment & Utilities
 python-dotenv>=1.0.1,<2.0.0
 
