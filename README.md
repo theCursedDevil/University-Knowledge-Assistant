@@ -222,6 +222,52 @@ PYTHONPATH=. alembic current
 PYTHONPATH=. alembic revision --autogenerate -m "migration_description"
 ```
 
+### Running the Frontend Locally
+To run the Next.js 14 web application for local development:
+```bash
+# 1. Navigate to the frontend directory
+cd frontend
+
+# 2. Install dependencies
+npm install
+
+# 3. Start the Next.js development server
+npm run dev
+```
+The application will be accessible at: `http://localhost:3000`
+
+### Implemented Frontend Screens & System States
+
+The user interface follows a minimal black, white, and grey aesthetic with a subtle warm orange accent (`accent: #ea580c`), desktop-first responsive design, and clean typography:
+
+| Screen ID | Route | Screen Name & Description | Access / Role |
+|---|---|---|---|
+| **W-01** | `/login` | **Login:** Credentials form, Keycloak SSO redirect, persona switcher | Public |
+| **W-02** | `/auth/oauth-flow` | **OAuth Login Flow:** Visual 4-step Authorization Code + PKCE simulation | Public |
+| **W-03** | `/dashboard` | **Dashboard:** Role badges, quick RAG query actions, analytics stats, recent threads | All Roles |
+| **W-04** | `/chat` | **Chat Interface:** Multi-turn dialogue, real-time token streaming, active citations | All Roles |
+| **W-05** | `/chat` (Drawer) | **AI Response + Citation Panel:** Interactive slide-over verifying document provenance | All Roles |
+| **W-06** | `/conversations` | **Conversation History:** Searchable multi-turn thread logs, message counts, deletion | Owner Only |
+| **W-07** | `/documents` | **Document Search:** University document catalog with category filters & keyword search | All Roles |
+| **W-08** | `/documents/[id]` | **Document Preview:** Multi-page PDF text reader with MinIO storage & chunk metadata | All Roles |
+| **W-09** | `/citations` | **Citation View:** Verifiable regulations explorer with zero-hallucination guarantee | All Roles |
+| **W-10** | `/profile` | **User Profile:** Read-only identity credentials, Keycloak roles, permission audit | All Roles |
+| **W-11** | `/admin/upload` | **Admin: Document Upload:** Drag-and-drop PDF ingestion with live pipeline progress | Admin Only |
+| **W-12** | `/admin/metadata` | **Admin: Metadata Management:** Ingestion chunk browser, Qdrant re-indexing, cascade delete | Admin Only |
+| **W-13** | `/admin/analytics` | **Admin: Analytics Dashboard:** System KPIs, query demand bars, cosine confidence distributions | Admin Only |
+| **W-14** | `/signup` | **Sign Up:** Registration screen with validation, terms checkbox, and admin-lockout guard | Public |
+| **W-15** | `/forgot-password` | **Forgot Password:** Password-reset request interface with validation & confirmation state | Public |
+| **W-16** | `/chat` (Embedded) | **Suggested Questions:** Categorized quick-prompt cards (Exams, Hostel, Calendar, Placements) | All Roles |
+| **W-17** | `/preferences` | **Account Preferences:** Light/dark appearance, display density, language, notifications | All Roles |
+| **W-18** | `/admin/users` | **Admin: User Management:** User table, search/filters, role edit modal, self-lockout guard | Admin Only |
+
+**System States (S-1 to S-5):**
+- **S-1 Loading State:** Pulse shimmer skeleton loaders during async operations.
+- **S-2 Empty State:** Dedicated zero-item placeholders with contextual calls-to-action.
+- **S-3 No Results State:** Search fallback state with query highlights and quick reset triggers.
+- **S-4 Error State:** Structured error banners with actionable recovery options.
+- **S-5 Permission Denied:** Admin-only barrier preventing unauthorized student/faculty access.
+
 ### Running Backend Tests
 Execute the automated test suite using `pytest`:
 ```bash

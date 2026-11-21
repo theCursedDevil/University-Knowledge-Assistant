@@ -11,12 +11,12 @@
 
 | Metric | Status | Details |
 |---|:---:|---|
-| **Current Phase** | **Phase 6 (Core RAG Engine & Citation Resolution)** | Completed: Qdrant setup, SentenceTransformers embeddings (`UKA-23` to `UKA-25`), Grounded prompt construction (`UKA-27`), Confidence threshold gating (`UKA-26`), Groq LLM client (`UKA-28`), Deterministic citation resolver (`UKA-29`). |
-| **Completed Phases** | **Phases 1, 2, 3, 4, 5 & 6** | Planning, Git/JIRA Setup, Backend Skeleton, PostgreSQL Schema, Document Pipeline, Core RAG & Citations (`UKA-16` through `UKA-29`). |
-| **Pending Phases** | **Phases 7–14** | Conversational chat interface (Next.js), streaming responses, Keycloak OAuth, replication sync, Docker, K8s, CI/CD. |
-| **Blocked Items** | **None** | All integrations (GitHub MCP, JIRA TWG, MinIO, PostgreSQL, Qdrant, Groq LLM) verified and operational. |
-| **Active JIRA Board** | [`UKA`](https://nightbladeninja.atlassian.net/jira/software/projects/UKA/boards) | 14 Epics created; Citation resolution validated with 49 passing automated tests. |
-| **Latest Test Status** | **PASSED** | 62/62 backend, schema, document API, vector retrieval, core RAG, citations, conversation management, and SSE streaming tests passed. |
+| **Current Phase** | **Phase 7 (Conversational Interface & Full Frontend Design)** | Completed: Next.js 14 application layout (`UKA-31`), 18 complete screens (W-01 to W-18), 5 system states (S-1 to S-5), SSE token streaming chat interface (`UKA-32`), conversation history (`UKA-33`), citation inspector (`UKA-30`), and admin console (`UKA-9`, `UKA-34`). |
+| **Completed Phases** | **Phases 1, 2, 3, 4, 5, 6 & 7** | Planning, Git/JIRA Setup, Backend Skeleton, PostgreSQL Schema, Document Pipeline, Core RAG, Citations, and Conversational Frontend (`UKA-16` through `UKA-34`). |
+| **Pending Phases** | **Phases 8–14** | Keycloak OAuth 2.0 integration, database replication sync & locking, Docker Compose 9-service stack, K8s manifests, CI/CD pipeline, and demo scripts. |
+| **Blocked Items** | **None** | All integrations (GitHub MCP, JIRA TWG, MinIO, PostgreSQL, Qdrant, Groq LLM, Next.js 14) verified and operational. |
+| **Active JIRA Board** | [`UKA`](https://nightbladeninja.atlassian.net/jira/software/projects/UKA/boards) | 14 Epics created; 18 frontend screens built; 62 backend tests + 19 frontend routes verified. |
+| **Latest Test Status** | **PASSED** | 62/62 backend tests passing + Next.js production build (`19/19` static/dynamic routes) passing. |
 
 ---
 
@@ -30,7 +30,7 @@
 | **4** | **Database Schema & Migrations** | Tier 1 (MVP) | ✅ **COMPLETED** | `UKA-1`, `UKA-18` | 2026-11-21 |
 | **5** | **Document Ingestion Pipeline** | Tier 1 (MVP) | ✅ **COMPLETED** | `UKA-3`, `UKA-19` to `UKA-22` | 2026-11-21 |
 | **6** | **RAG Core Engine (Embeddings & Groq)** | Tier 1 (MVP) | ✅ **COMPLETED** | `UKA-4`, `UKA-5`, `UKA-23` to `UKA-28` | 2026-11-21 |
-| **7** | **Conversational Interface (Next.js)** | Tier 1 (MVP) | ⏳ PENDING | `UKA-7`, `UKA-8` | Sprint 2 |
+| **7** | **Conversational Interface & Frontend (Next.js)** | Tier 1 (MVP) | ✅ **COMPLETED** | `UKA-7`, `UKA-30` to `UKA-34` | 2026-11-21 |
 | **8** | **OAuth 2.0 / OIDC & RBAC (Keycloak)** | Tier 2 (Graded) | ⏳ PENDING | `UKA-8` | Sprint 3 |
 | **9** | **Database Synchronization & Replicas** | Tier 2 (Graded) | ⏳ PENDING | `UKA-10`, `UKA-11` | Sprint 3 |
 | **10** | **Dockerization (Full Compose Stack)** | Tier 2 (Graded) | ⏳ PENDING | `UKA-12` | Sprint 4 |
@@ -80,11 +80,12 @@
 | `UKA-27` | Grounded Prompt Construction with XML Context Delimiters | `UKA-5` | Must Have | ✅ **Done** |
 | `UKA-28` | Groq API LLM Client and Low-Temperature Generation | `UKA-5` | Must Have | ✅ **Done** |
 | `UKA-29` | Deterministic Citation Resolver from Verified Chunks | `UKA-6` | Must Have | ✅ **Done** |
-| `UKA-30` | Frontend Citation Display and Source Document Viewer | `UKA-6` | Should Have | To Do |
-| `UKA-31` | Next.js 14 Web Application Layout and Grayscale Theme | `UKA-7` | Must Have | To Do |
-| `UKA-32` | Chat Interface with Token-by-Token SSE Stream Consumption | `UKA-7` | Must Have | ✅ **Done** (Backend SSE Streaming) |
+| `UKA-30` | Frontend Citation Display and Source Document Viewer | `UKA-6` | Should Have | ✅ **Done** |
+| `UKA-31` | Next.js 14 Web Application Layout and Grayscale Theme | `UKA-7` | Must Have | ✅ **Done** |
+| `UKA-32` | Chat Interface with Token-by-Token SSE Stream Consumption | `UKA-7` | Must Have | ✅ **Done** |
 | `UKA-33` | Multi-Turn Conversation History and Sidebar Management | `UKA-7` | Must Have | ✅ **Done** |
-| `UKA-34` | UI System States Implementation (Loading, Empty, Error, Forbidden) | `UKA-7` | Should Have | To Do |
+| `UKA-34` | UI System States Implementation (Loading, Empty, Error, Forbidden) | `UKA-7` | Should Have | ✅ **Done** |
+| `UKA-35` | Additional Screens (Sign Up, Forgot Password, Questions, Prefs, User Mgmt) | `UKA-7` | Should Have | ✅ **Done** |
 
 ---
 
@@ -104,6 +105,7 @@
 | `TEST-CIT-001` | Deterministic Citation Resolver & Mapping | ✅ **PASSED** | 6 tests passing (chunk-to-PostgreSQL mapping, filename/page extraction, section inclusion, deduplication, omission of incomplete metadata). |
 | `TEST-CHAT-001` | Conversation Lifecycle & History Lookback | ✅ **PASSED** | 9 tests passing (POST/GET conversations, owner isolation, 403 forbidden, message posting, RAG integration, citation persistence, last 6 message history context, DB persistence). |
 | `TEST-STREAM-001` | SSE Token Streaming & Message Buffering | ✅ **PASSED** | 4 tests passing (token-by-token SSE streaming, typewriter fallback stream, interruption error handling, single complete message persistence). |
+| `TEST-FE-001` | Next.js 14 Build & Static Generation | ✅ **PASSED** | 19/19 routes compiled & statically generated with 0 TypeScript/ESLint errors. |
 | `TEST-AUTH-001` | Keycloak JWT Authentication | ⏳ Pending | Scheduled for Phase 8 (`UKA-8`). |
 | `TEST-DB-001` | Multi-Replica Read-After-Write Sync | ⏳ Pending | Scheduled for Phase 9 (`UKA-10`). |
 | `TEST-CONC-001` | Optimistic Locking 409 Conflict | ⏳ Pending | Scheduled for Phase 9 (`UKA-10`). |
