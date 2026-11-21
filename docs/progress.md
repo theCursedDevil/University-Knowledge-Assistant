@@ -51,8 +51,8 @@
 | `UKA-3` | `[EPIC 2] Document Ingestion` | Phase 5 | To Do |
 | `UKA-4` | `[EPIC 3] Vector Database` | Phase 6 | To Do |
 | `UKA-5` | `[EPIC 4] RAG Pipeline` | Phase 6 | To Do |
-| `UKA-6` | `[EPIC 5] Citation System` | Phases 6–7 | To Do |
-| `UKA-7` | `[EPIC 6] Conversational Interface` | Phase 7 | To Do |
+| `UKA-6` | `[EPIC 5] Citation System` | Phases 6–7 | In Progress |
+| `UKA-7` | `[EPIC 6] Conversational Interface` | Phase 7 | In Progress |
 | `UKA-8` | `[EPIC 7] Authentication and User Management` | Phase 8 | To Do |
 | `UKA-9` | `[EPIC 8] Admin Console` | Phases 5, 7 | To Do |
 | `UKA-10` | `[EPIC 9] Database Synchronization` | Phase 9 | To Do |
@@ -83,7 +83,7 @@
 | `UKA-30` | Frontend Citation Display and Source Document Viewer | `UKA-6` | Should Have | To Do |
 | `UKA-31` | Next.js 14 Web Application Layout and Grayscale Theme | `UKA-7` | Must Have | To Do |
 | `UKA-32` | Chat Interface with Token-by-Token SSE Stream Consumption | `UKA-7` | Must Have | To Do |
-| `UKA-33` | Multi-Turn Conversation History and Sidebar Management | `UKA-7` | Must Have | To Do |
+| `UKA-33` | Multi-Turn Conversation History and Sidebar Management | `UKA-7` | Must Have | ✅ **Done** |
 | `UKA-34` | UI System States Implementation (Loading, Empty, Error, Forbidden) | `UKA-7` | Should Have | To Do |
 
 ---
@@ -102,6 +102,7 @@
 | `TEST-VEC-001` | Qdrant Cosine Retrieval & Idempotency | ✅ **PASSED** | 2 tests passing (Prompt 8 payload field compliance, deterministic duplicate prevention, top-k semantic search query endpoint). |
 | `TEST-RAG-001` | RAG Prompt Assembly & Fallback Gating | ✅ **PASSED** | 7 tests passing (anti-injection XML boundaries, top-k retrieval, confidence threshold fallback, grounded answering via Groq, POST /rag/query). |
 | `TEST-CIT-001` | Deterministic Citation Resolver & Mapping | ✅ **PASSED** | 6 tests passing (chunk-to-PostgreSQL mapping, filename/page extraction, section inclusion, deduplication, omission of incomplete metadata). |
+| `TEST-CHAT-001` | Conversation Lifecycle & History Lookback | ✅ **PASSED** | 9 tests passing (POST/GET conversations, owner isolation, 403 forbidden, message posting, RAG integration, citation persistence, last 6 message history context, DB persistence). |
 | `TEST-AUTH-001` | Keycloak JWT Authentication | ⏳ Pending | Scheduled for Phase 8 (`UKA-8`). |
 | `TEST-DB-001` | Multi-Replica Read-After-Write Sync | ⏳ Pending | Scheduled for Phase 9 (`UKA-10`). |
 | `TEST-CONC-001` | Optimistic Locking 409 Conflict | ⏳ Pending | Scheduled for Phase 9 (`UKA-10`). |

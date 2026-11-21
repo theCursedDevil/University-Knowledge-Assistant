@@ -45,9 +45,13 @@ async def get_or_create_dev_user(
     }
     default_sub, default_name, default_email = sub_map[role]
 
-    target_sub = default_sub
     target_email = email or default_email
-    target_name = name or default_name
+    if email and email != default_email:
+        target_sub = f"dev-sub-{email}"
+        target_name = name or email.split("@")[0].replace(".", " ").title()
+    else:
+        target_sub = default_sub
+        target_name = name or default_name
 
     stmt = select(User).where(User.oauth_sub == target_sub)
     result = await db.execute(stmt)

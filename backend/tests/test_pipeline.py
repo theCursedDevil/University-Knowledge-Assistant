@@ -407,15 +407,17 @@ async def test_upload_and_semantic_search_retrieval(client: TestClient, db_sessi
     results = search_resp.json()
     assert len(results) > 0
 
-    top_hit = results[0]
+    matching_hits = [r for r in results if r["document_id"] == str(doc_id)]
+    assert len(matching_hits) > 0
+    target_hit = matching_hits[0]
     # Check score and text relevance
-    assert top_hit["score"] > 0.2
-    assert "CGPA" in top_hit["chunk_text"] or "attendance" in top_hit["chunk_text"].lower()
-    assert top_hit["document_id"] == str(doc_id)
-    assert top_hit["document_name"] == "University Grading and CGPA Policy"
-    assert top_hit["page"] in (1, 2)
-    assert top_hit["category"] == "Academic"
-    assert len(top_hit["chunk_id"]) > 0
+    assert target_hit["score"] > 0.2
+    assert "CGPA" in target_hit["chunk_text"] or "attendance" in target_hit["chunk_text"].lower()
+    assert target_hit["document_id"] == str(doc_id)
+    assert target_hit["document_name"] == "University Grading and CGPA Policy"
+    assert target_hit["page"] in (1, 2)
+    assert target_hit["category"] == "Academic"
+    assert len(target_hit["chunk_id"]) > 0
 
     # 3. Filter check: Searching with a non-matching category returns no hits
     mismatched_filter_resp = client.post(

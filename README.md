@@ -204,6 +204,10 @@ Endpoints:
 | `POST` | `/api/v1/documents/search` | Top-k semantic vector search with cosine similarity | User (`X-Dev-Role`) |
 | `POST` | `/api/v1/rag/query` | Natural-language grounded question answering via Groq LLM | User (`X-Dev-Role`) |
 | `DELETE` | `/api/v1/documents/{id}` | Cascading deletion across MinIO, Qdrant vectors, and PostgreSQL | Admin (`X-Dev-Role: admin`) |
+| `POST` | `/conversations` | Start a new persistent conversation thread | User |
+| `GET` | `/conversations` | List current user's conversations (ordered by most recently updated) | User |
+| `GET` | `/conversations/{id}` | Get messages in a conversation thread (restricted to owner) | User (Owner) |
+| `POST` | `/conversations/{id}/messages` | Ask a question, retrieve last 6 turns context, invoke RAG, save turn + citations | User (Owner) |
 
 ### Database Migrations (Alembic)
 Manage and apply PostgreSQL database schema migrations:
