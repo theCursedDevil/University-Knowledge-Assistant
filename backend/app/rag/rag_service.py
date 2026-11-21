@@ -5,7 +5,7 @@ grounded prompt assembly with XML boundaries, low-temperature LLM generation, an
 citation resolution.
 """
 
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any, AsyncGenerator
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -144,6 +144,108 @@ class RAGService:
             confidence_score=retrieval.top_score,
             model_used=self.llm.model,
         )
+
+    async def answer_question_stream(
+        self,
+        question: str,
+        conversation_history: Optional[List[Dict[str, str]]] = None,
+        top_k: Optional[int] = None,
+        confidence_threshold: Optional[float] = None,
+        filter_category: Optional[str] = None,
+        session: Optional[AsyncSession] = None,
+    ) -> AsyncGenerator[Dict[str, Any], None]:
+        """Executes the RAG pipeline with token-by-token streaming (FR-CHAT-002, Prompt 12).
+
+        Workflow:
+        1. Embed user question & retrieve top-k chunks from Qdrant via cosine similarity.
+        2. Evaluate retrieval confidence against threshold.
+        3. If insufficient, streams clear fallback message token-by-token.
+        4. If sufficient, construct grounded prompt with anti-injection XML delimiters.
+        5. Stream completion tokens from Groq API with low temperature (0.1).
+        6. Derive deterministic citations strictly from retrieved chunks via PostgreSQL metadata.
+        7. Emit completion payload containing buffered complete answer and verified citations.
+
+        Yields:
+            Dict events:
+            - {"type": "token", "token": str} for each streamed token.
+            - {"type": "done", "answer": str, "citations": List[Citation], "is_sufficient": bool, ...} upon completion.
+        """
+        # Step 1 & 2: Top-k vector retrieval and confidence evaluation
+        retrieval: RetrievalResult = self.retriever.retrieve(
+            query=question,
+            top_k=top_k,
+            confidence_threshold=confidence_threshold,
+            filter_category=filter_category,
+        )
+
+        # Step 3: Check if retrieved content is sufficiently relevant
+        if not retrieval.is_sufficient:
+            logger.info(
+                "Retrieval confidence (%.4f) below threshold (%.4f) for query: '%s'. Streaming fallback.",
+                retrieval.top_score,
+                retrieval.threshold,
+                question[:60],
+            )
+            fallback_text = settings.RAG_INSUFFICIENT_CONTEXT_MESSAGE
+            words = fallback_text.split(" ")
+            for i, word in enumerate(words):
+                chunk = word + (" " if i < len(words) - 1 else "")
+                yield {"type": "token", "token": chunk}
+
+            yield {
+                "type": "done",
+                "answer": fallback_text,
+                "citations": [],
+                "is_sufficient": False,
+                "confidence_score": retrieval.top_score,
+                "retrieved_chunks": retrieval.chunks,
+                "model_used": self.llm.model,
+            }
+            return
+
+        # Step 4: Construct grounded prompt with XML boundaries
+        system_prompt, user_prompt = build_rag_prompt(
+            question=question,
+            chunks=retrieval.chunks,
+            conversation_history=conversation_history,
+        )
+
+        # Step 5: Stream prompt completion tokens from Groq API
+        tokens: List[str] = []
+        async for token in self.llm.generate_stream(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+        ):
+            tokens.append(token)
+            yield {"type": "token", "token": token}
+
+        full_answer = "".join(tokens).strip()
+
+        # Step 6: Derive citations deterministically from the retrieved chunk IDs
+        chunk_ids = [chunk.chunk_id for chunk in retrieval.chunks]
+        try:
+            citations = await self.citation_resolver.resolve_from_chunk_ids(
+                chunk_ids=chunk_ids,
+                session=session,
+            )
+        except Exception as exc:
+            logger.warning("PostgreSQL citation resolution failed (%s); falling back to chunk payloads", exc)
+            citations = []
+
+        # If DB query returned no rows (e.g. during test stubs), fallback to verified payload metadata
+        if not citations and retrieval.chunks:
+            citations = self.citation_resolver.resolve_from_search_results(retrieval.chunks)
+
+        # Step 7: Emit completion event with full buffered answer and citations
+        yield {
+            "type": "done",
+            "answer": full_answer,
+            "citations": citations,
+            "is_sufficient": True,
+            "confidence_score": retrieval.top_score,
+            "retrieved_chunks": retrieval.chunks,
+            "model_used": self.llm.model,
+        }
 
 
 rag_service = RAGService()

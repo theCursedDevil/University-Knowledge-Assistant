@@ -7,10 +7,12 @@ Endpoints:
 - POST /conversations/{id}/messages: Submit a user question, retrieve recent turns, invoke RAG, and record turn.
 """
 
+import json
 import uuid
 from datetime import datetime, timezone
-from typing import List, Optional, Any
-from fastapi import APIRouter, Depends, status, Query
+from typing import List, Optional, Any, Union
+from fastapi import APIRouter, Depends, status, Query, Request, Response
+from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select, case
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.app.core.auth_dev import get_current_user
 from backend.app.core.errors import NotFoundError, ForbiddenError
 from backend.app.core.logging import logger
-from backend.app.db.session import get_db
+from backend.app.db.session import get_db, AsyncSessionLocal
 from backend.app.db.models import User, Conversation, Message
 from backend.app.rag.rag_service import rag_service
 from backend.app.rag.citation import Citation
@@ -79,6 +81,7 @@ class MessageCreate(BaseModel):
     """Request schema for posting a new user message in a conversation."""
 
     content: str = Field(..., min_length=1, max_length=4000, description="User question or follow-up prompt.")
+    stream: Optional[bool] = Field(default=False, description="Whether to stream response tokens via SSE.")
 
 
 class ChatTurnResponse(BaseModel):
@@ -206,17 +209,28 @@ async def get_conversation(
 
 @router.post(
     "/{id}/messages",
-    response_model=ChatTurnResponse,
-    status_code=status.HTTP_201_CREATED,
     summary="Send Question in Conversation",
-    description="Saves user question, loads recent turns for context, runs grounded RAG, and saves assistant answer with citations.",
+    description="Saves user question, loads recent turns for context, runs grounded RAG, and saves assistant answer with citations (supports token-by-token SSE streaming).",
+    response_model=None,
+    responses={
+        200: {
+            "description": "Streamed response tokens and completion via Server-Sent Events (SSE).",
+            "content": {"text/event-stream": {}},
+        },
+        201: {
+            "description": "Completed message turn with citations (non-streaming).",
+            "model": ChatTurnResponse,
+        },
+    },
 )
 async def post_message(
     id: uuid.UUID,
     message_in: MessageCreate,
+    request: Request,
+    stream: Optional[bool] = Query(default=None, description="Stream answer tokens via Server-Sent Events (SSE)."),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> ChatTurnResponse:
+) -> Response:
     """Executes a multi-turn conversational exchange with RAG context."""
     # 1. Fetch and verify conversation ownership
     stmt = select(Conversation).where(Conversation.id == id)
@@ -267,7 +281,93 @@ async def post_message(
     recent_turns = list(reversed(history_res.scalars().all()))
     history_payload = [{"role": m.role, "content": m.content} for m in recent_turns]
 
-    # 4. Invoke RAG pipeline with question, history, and database session
+    # Check whether client requested SSE streaming delivery
+    should_stream = bool(
+        stream is True
+        or message_in.stream is True
+        or (request and "text/event-stream" in request.headers.get("accept", "").lower())
+    )
+
+    if should_stream:
+        # Commit user message before starting SSE response stream
+        await db.commit()
+
+        async def sse_event_generator():
+            buffered_tokens: List[str] = []
+            assistant_msg_id = uuid.uuid4()
+            try:
+                async with AsyncSessionLocal() as session:
+                    async for event in rag_service.answer_question_stream(
+                        question=user_content,
+                        conversation_history=history_payload,
+                        session=session,
+                    ):
+                        if event["type"] == "token":
+                            buffered_tokens.append(event["token"])
+                            token_payload = json.dumps({"token": event["token"]})
+                            yield f"data: {token_payload}\n\n"
+
+                        elif event["type"] == "done":
+                            final_answer = event["answer"]
+                            citations = event["citations"]
+                            citations_data = [cit.model_dump() for cit in citations] if citations else None
+
+                            # Requirement 6 & 7: Persist single complete assistant message once streaming finishes
+                            assistant_message = Message(
+                                id=assistant_msg_id,
+                                conversation_id=conversation.id,
+                                role="assistant",
+                                content=final_answer,
+                                citations_json=citations_data,
+                                created_at=datetime.now(timezone.utc),
+                            )
+                            session.add(assistant_message)
+
+                            # Requirement 8 & 9: Update conversation updated_at and title if default
+                            conv_stmt = select(Conversation).where(Conversation.id == conversation.id)
+                            conv_res = await session.execute(conv_stmt)
+                            conv = conv_res.scalar_one_or_none()
+                            if conv:
+                                conv.updated_at = datetime.now(timezone.utc)
+                                if conv.title == "New Conversation":
+                                    conv.title = user_content[:50].strip()
+
+                            await session.commit()
+
+                            logger.info(
+                                "Streamed chat turn completed for conv %s: user message %s -> assistant message %s (%d citations)",
+                                conversation.id,
+                                user_message.id,
+                                assistant_message.id,
+                                len(citations) if citations else 0,
+                            )
+
+                            done_payload = json.dumps({
+                                "done": True,
+                                "message_id": str(assistant_msg_id),
+                                "conversation_id": str(conversation.id),
+                                "citations": citations_data or [],
+                            })
+                            yield f"data: {done_payload}\n\n"
+                            return
+
+            except Exception as exc:
+                logger.error("SSE stream interrupted or LLM failed for conversation %s: %s", conversation.id, exc)
+                err_payload = json.dumps({"error": str(exc), "done": True})
+                yield f"data: {err_payload}\n\n"
+
+        return StreamingResponse(
+            sse_event_generator(),
+            status_code=status.HTTP_200_OK,
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
+    # 4. Non-Streaming Fallback: Invoke RAG pipeline with question, history, and database session
     rag_result = await rag_service.answer_question(
         question=user_content,
         conversation_history=history_payload,
@@ -304,9 +404,13 @@ async def post_message(
         len(rag_result.citations),
     )
 
-    return ChatTurnResponse(
+    response_payload = ChatTurnResponse(
         conversation_id=conversation.id,
         user_message=MessageResponse.model_validate(user_message),
         assistant_message=MessageResponse.model_validate(assistant_message),
         citations=rag_result.citations,
+    )
+    return JSONResponse(
+        status_code=status.HTTP_201_CREATED,
+        content=response_payload.model_dump(mode="json"),
     )

@@ -3,7 +3,7 @@
 Provides low-temperature completion generation using Groq's high-speed LLaMA 3.1 8B instant model.
 """
 
-from typing import Optional
+from typing import Optional, AsyncGenerator
 from groq import AsyncGroq, GroqError
 
 from backend.app.core.config import get_settings
@@ -73,6 +73,52 @@ class LLMClient:
             raise ExternalServiceError("GroqLLM", f"LLM generation failed: {exc}")
         except Exception as exc:
             logger.error("Unexpected error during LLM generation: %s", exc)
+            raise ExternalServiceError("GroqLLM", f"Unexpected error: {exc}")
+
+    async def generate_stream(
+        self, system_prompt: str, user_prompt: str
+    ) -> AsyncGenerator[str, None]:
+        """Streams completion tokens from Groq API or deterministic offline mock generator.
+
+        Args:
+            system_prompt: Grounding and anti-injection system directives.
+            user_prompt: Structured prompt with XML context, history, and question.
+
+        Yields:
+            Individual token strings.
+
+        Raises:
+            ExternalServiceError: If Groq API streaming fails.
+        """
+        # Offline or unit-test fallback when no active Groq key is configured
+        if not self.api_key or self.api_key.startswith("your_groq") or self.api_key == "mock-groq-key":
+            logger.info("Generating mock streamed grounded response (offline development mode)...")
+            mock_text = self._mock_grounded_response(user_prompt)
+            words = mock_text.split(" ")
+            for i, word in enumerate(words):
+                chunk = word + (" " if i < len(words) - 1 else "")
+                yield chunk
+            return
+
+        try:
+            stream = await self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                temperature=self.temperature,
+                max_tokens=self.max_tokens,
+                stream=True,
+            )
+            async for chunk in stream:
+                if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.content:
+                    yield chunk.choices[0].delta.content
+        except GroqError as exc:
+            logger.error("Groq API streaming failed: %s", exc)
+            raise ExternalServiceError("GroqLLM", f"LLM streaming failed: {exc}")
+        except Exception as exc:
+            logger.error("Unexpected error during LLM streaming: %s", exc)
             raise ExternalServiceError("GroqLLM", f"Unexpected error: {exc}")
 
     def _mock_grounded_response(self, user_prompt: str) -> str:

@@ -196,3 +196,25 @@ async def test_rag_service_successful_grounded_answer(client: TestClient, db_ses
 
     # 4. Cleanup
     client.delete(f"/api/v1/documents/{doc_id}", headers={"X-Dev-Role": "admin"})
+
+
+@pytest.mark.asyncio
+async def test_rag_service_answer_question_stream_fallback():
+    """Prompt 12 Req 3: Verifies that rag_service.answer_question_stream streams fallback when confidence is insufficient."""
+    events = []
+    async for event in rag_service.answer_question_stream(
+        question="What is the quantum state of university Mars rover?",
+        confidence_threshold=0.99,  # Force insufficient confidence
+    ):
+        events.append(event)
+
+    token_events = [e for e in events if e["type"] == "token"]
+    assert len(token_events) > 0
+    streamed_text = "".join(e["token"] for e in token_events)
+    assert streamed_text == settings.RAG_INSUFFICIENT_CONTEXT_MESSAGE
+
+    done_event = [e for e in events if e["type"] == "done"][0]
+    assert done_event["is_sufficient"] is False
+    assert done_event["citations"] == []
+    assert done_event["answer"] == settings.RAG_INSUFFICIENT_CONTEXT_MESSAGE
+

@@ -13,6 +13,7 @@ Verifies:
 10. Database persistence: Records persist directly in PostgreSQL tables.
 """
 
+import json
 import uuid
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
@@ -257,3 +258,164 @@ async def test_conversation_persistence_in_db(client: TestClient, db_session):
     assert persisted_conv is not None
     assert persisted_conv.title == "Persistence Test"
     assert persisted_conv.id == conv_id
+
+
+# ---------------------------------------------------------------------------
+# Prompt 12: Streaming SSE Chat Tests
+# ---------------------------------------------------------------------------
+
+
+def test_post_message_streaming_sse_success(client: TestClient):
+    """Prompt 12: Tests SSE streaming answer delivery, buffering, citation resolution, and single message persistence."""
+    headers = {"X-Dev-Email": "stream_user@university.edu"}
+
+    # 1. Create a conversation
+    conv_res = client.post("/conversations", json={"title": "Streaming Test"}, headers=headers)
+    assert conv_res.status_code == 201
+    conv_id = conv_res.json()["id"]
+
+    mock_citations = [
+        Citation(document="academic_regulations.pdf", page=12, section="Grading System")
+    ]
+
+    async def mock_answer_question_stream(question, conversation_history=None, session=None, **kwargs):
+        tokens = ["Students ", "must ", "maintain ", "a ", "minimum ", "CGPA ", "of ", "6.0."]
+        for t in tokens:
+            yield {"type": "token", "token": t}
+        yield {
+            "type": "done",
+            "answer": "Students must maintain a minimum CGPA of 6.0.",
+            "citations": mock_citations,
+            "is_sufficient": True,
+            "confidence_score": 0.89,
+        }
+
+    with patch("backend.app.api.conversations.rag_service.answer_question_stream", side_effect=mock_answer_question_stream):
+        response = client.post(
+            f"/conversations/{conv_id}/messages?stream=true",
+            json={"content": "What CGPA must students maintain?"},
+            headers=headers,
+        )
+
+        assert response.status_code == 200
+        assert "text/event-stream" in response.headers["content-type"]
+
+        # Parse SSE events from response text
+        lines = [line.strip() for line in response.text.split("\n") if line.strip().startswith("data:")]
+        events = [json.loads(line[len("data:"):].strip()) for line in lines]
+
+        # Verify token events
+        token_events = [e for e in events if "token" in e]
+        assert len(token_events) == 8
+        streamed_text = "".join(e["token"] for e in token_events)
+        assert streamed_text == "Students must maintain a minimum CGPA of 6.0."
+
+        # Verify completion event
+        done_events = [e for e in events if e.get("done") is True]
+        assert len(done_events) == 1
+        done_event = done_events[0]
+        assert done_event["done"] is True
+        assert len(done_event["citations"]) == 1
+        assert done_event["citations"][0]["document"] == "academic_regulations.pdf"
+        assert done_event["citations"][0]["page"] == 12
+
+    # Verify database persistence:
+    # Requirement 6 & 7: exactly ONE assistant message with the complete buffered text, NOT separate tokens
+    detail_res = client.get(f"/conversations/{conv_id}", headers=headers)
+    assert detail_res.status_code == 200
+    detail = detail_res.json()
+    assert len(detail["messages"]) == 2  # 1 user + 1 assistant
+    user_msg = detail["messages"][0]
+    assistant_msg = detail["messages"][1]
+
+    assert user_msg["role"] == "user"
+    assert user_msg["content"] == "What CGPA must students maintain?"
+    assert assistant_msg["role"] == "assistant"
+    assert assistant_msg["content"] == "Students must maintain a minimum CGPA of 6.0."
+    assert assistant_msg["citations_json"] is not None
+    assert assistant_msg["citations_json"][0]["document"] == "academic_regulations.pdf"
+
+
+def test_post_message_streaming_insufficient_context_fallback(client: TestClient):
+    """Prompt 12 Req 3: Stream clear fallback response when retrieval confidence is insufficient."""
+    headers = {"X-Dev-Email": "fallback_stream_user@university.edu"}
+
+    conv_res = client.post("/conversations", json={}, headers=headers)
+    assert conv_res.status_code == 201
+    conv_id = conv_res.json()["id"]
+
+    fallback_msg = "I couldn't find sufficient information about this in the available university documents."
+
+    async def mock_fallback_stream(question, conversation_history=None, session=None, **kwargs):
+        words = fallback_msg.split(" ")
+        for i, word in enumerate(words):
+            yield {"type": "token", "token": word + (" " if i < len(words) - 1 else "")}
+        yield {
+            "type": "done",
+            "answer": fallback_msg,
+            "citations": [],
+            "is_sufficient": False,
+            "confidence_score": 0.12,
+        }
+
+    with patch("backend.app.api.conversations.rag_service.answer_question_stream", side_effect=mock_fallback_stream):
+        response = client.post(
+            f"/conversations/{conv_id}/messages",
+            json={"content": "What is the secret recipe of the cafeteria pizza?", "stream": True},
+            headers=headers,
+        )
+        assert response.status_code == 200
+        assert "text/event-stream" in response.headers["content-type"]
+
+        lines = [line.strip() for line in response.text.split("\n") if line.strip().startswith("data:")]
+        events = [json.loads(line[len("data:"):].strip()) for line in lines]
+
+        token_events = [e for e in events if "token" in e]
+        streamed_text = "".join(e["token"] for e in token_events)
+        assert streamed_text == fallback_msg
+
+        done_event = [e for e in events if e.get("done") is True][0]
+        assert done_event["citations"] == []
+
+    # Verify database persistence for fallback
+    detail = client.get(f"/conversations/{conv_id}", headers=headers).json()
+    assert len(detail["messages"]) == 2
+    assert detail["messages"][1]["role"] == "assistant"
+    assert detail["messages"][1]["content"] == fallback_msg
+    assert detail["messages"][1]["citations_json"] is None
+
+
+def test_post_message_streaming_interrupted_or_llm_failure(client: TestClient):
+    """Prompt 12 Req 8: Handle interrupted streams and LLM failures without saving corrupt partial messages."""
+    headers = {"X-Dev-Email": "error_stream_user@university.edu"}
+
+    conv_res = client.post("/conversations", json={"title": "Error Handling Thread"}, headers=headers)
+    assert conv_res.status_code == 201
+    conv_id = conv_res.json()["id"]
+
+    async def mock_failing_stream(question, conversation_history=None, session=None, **kwargs):
+        yield {"type": "token", "token": "Starting response..."}
+        raise RuntimeError("Groq API rate limit or network partition")
+
+    with patch("backend.app.api.conversations.rag_service.answer_question_stream", side_effect=mock_failing_stream):
+        response = client.post(
+            f"/conversations/{conv_id}/messages?stream=true",
+            json={"content": "Simulate external failure during stream"},
+            headers=headers,
+        )
+        assert response.status_code == 200
+
+        lines = [line.strip() for line in response.text.split("\n") if line.strip().startswith("data:")]
+        events = [json.loads(line[len("data:"):].strip()) for line in lines]
+
+        # Must receive the error event
+        error_events = [e for e in events if "error" in e]
+        assert len(error_events) == 1
+        assert "Groq API rate limit or network partition" in error_events[0]["error"]
+        assert error_events[0]["done"] is True
+
+    # Database must remain consistent: user message exists, but no broken assistant message was committed
+    detail = client.get(f"/conversations/{conv_id}", headers=headers).json()
+    assert len(detail["messages"]) == 1
+    assert detail["messages"][0]["role"] == "user"
+

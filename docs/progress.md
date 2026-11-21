@@ -16,7 +16,7 @@
 | **Pending Phases** | **Phases 7–14** | Conversational chat interface (Next.js), streaming responses, Keycloak OAuth, replication sync, Docker, K8s, CI/CD. |
 | **Blocked Items** | **None** | All integrations (GitHub MCP, JIRA TWG, MinIO, PostgreSQL, Qdrant, Groq LLM) verified and operational. |
 | **Active JIRA Board** | [`UKA`](https://nightbladeninja.atlassian.net/jira/software/projects/UKA/boards) | 14 Epics created; Citation resolution validated with 49 passing automated tests. |
-| **Latest Test Status** | **PASSED** | 49/49 backend, schema, document API, vector retrieval, core RAG, and citation tests passed (`TEST-UNIT-001`, `TEST-SCHEMA-001`, `TEST-DOC-001`, `TEST-PIPE-001`, `TEST-VEC-001`, `TEST-RAG-001`, `TEST-CIT-001`). |
+| **Latest Test Status** | **PASSED** | 62/62 backend, schema, document API, vector retrieval, core RAG, citations, conversation management, and SSE streaming tests passed. |
 
 ---
 
@@ -82,7 +82,7 @@
 | `UKA-29` | Deterministic Citation Resolver from Verified Chunks | `UKA-6` | Must Have | ✅ **Done** |
 | `UKA-30` | Frontend Citation Display and Source Document Viewer | `UKA-6` | Should Have | To Do |
 | `UKA-31` | Next.js 14 Web Application Layout and Grayscale Theme | `UKA-7` | Must Have | To Do |
-| `UKA-32` | Chat Interface with Token-by-Token SSE Stream Consumption | `UKA-7` | Must Have | To Do |
+| `UKA-32` | Chat Interface with Token-by-Token SSE Stream Consumption | `UKA-7` | Must Have | ✅ **Done** (Backend SSE Streaming) |
 | `UKA-33` | Multi-Turn Conversation History and Sidebar Management | `UKA-7` | Must Have | ✅ **Done** |
 | `UKA-34` | UI System States Implementation (Loading, Empty, Error, Forbidden) | `UKA-7` | Should Have | To Do |
 
@@ -103,6 +103,7 @@
 | `TEST-RAG-001` | RAG Prompt Assembly & Fallback Gating | ✅ **PASSED** | 7 tests passing (anti-injection XML boundaries, top-k retrieval, confidence threshold fallback, grounded answering via Groq, POST /rag/query). |
 | `TEST-CIT-001` | Deterministic Citation Resolver & Mapping | ✅ **PASSED** | 6 tests passing (chunk-to-PostgreSQL mapping, filename/page extraction, section inclusion, deduplication, omission of incomplete metadata). |
 | `TEST-CHAT-001` | Conversation Lifecycle & History Lookback | ✅ **PASSED** | 9 tests passing (POST/GET conversations, owner isolation, 403 forbidden, message posting, RAG integration, citation persistence, last 6 message history context, DB persistence). |
+| `TEST-STREAM-001` | SSE Token Streaming & Message Buffering | ✅ **PASSED** | 4 tests passing (token-by-token SSE streaming, typewriter fallback stream, interruption error handling, single complete message persistence). |
 | `TEST-AUTH-001` | Keycloak JWT Authentication | ⏳ Pending | Scheduled for Phase 8 (`UKA-8`). |
 | `TEST-DB-001` | Multi-Replica Read-After-Write Sync | ⏳ Pending | Scheduled for Phase 9 (`UKA-10`). |
 | `TEST-CONC-001` | Optimistic Locking 409 Conflict | ⏳ Pending | Scheduled for Phase 9 (`UKA-10`). |

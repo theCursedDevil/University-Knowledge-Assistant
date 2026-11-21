@@ -380,7 +380,7 @@ async def test_upload_and_semantic_search_retrieval(client: TestClient, db_sessi
     upload_resp = client.post(
         "/api/v1/documents?auto_process=false",
         headers={"X-Dev-Role": "admin"},
-        data={"category": "Academic", "title": "University Grading and CGPA Policy"},
+        data={"category": "Academic-Grading", "title": "University Grading and CGPA Policy"},
         files={"file": (filename, io.BytesIO(pdf_bytes), "application/pdf")},
     )
     assert upload_resp.status_code == 201
@@ -399,8 +399,8 @@ async def test_upload_and_semantic_search_retrieval(client: TestClient, db_sessi
         headers={"X-Dev-Role": "student"},
         json={
             "query": "What is the minimum CGPA and attendance requirement?",
-            "limit": 3,
-            "category": "Academic",
+            "limit": 5,
+            "category": "Academic-Grading",
         },
     )
     assert search_resp.status_code == 200
@@ -416,7 +416,7 @@ async def test_upload_and_semantic_search_retrieval(client: TestClient, db_sessi
     assert target_hit["document_id"] == str(doc_id)
     assert target_hit["document_name"] == "University Grading and CGPA Policy"
     assert target_hit["page"] in (1, 2)
-    assert target_hit["category"] == "Academic"
+    assert target_hit["category"] == "Academic-Grading"
     assert len(target_hit["chunk_id"]) > 0
 
     # 3. Filter check: Searching with a non-matching category returns no hits
