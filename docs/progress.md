@@ -11,12 +11,12 @@
 
 | Metric | Status | Details |
 |---|:---:|---|
-| **Current Phase** | **Phase 6 (Core RAG Engine & Generation)** | Completed: Qdrant setup, SentenceTransformers embeddings (`UKA-23`, `UKA-24`, `UKA-25`), Grounded prompt construction with XML delimiters (`UKA-27`), Confidence threshold gating (`UKA-26`), Groq LLM client (`UKA-28`). |
-| **Completed Phases** | **Phases 1, 2, 3, 4, 5 & 6** | Planning, Git/JIRA Setup, Backend Skeleton, PostgreSQL Schema, Document Pipeline, Core RAG Engine (`UKA-16` through `UKA-28`). |
-| **Pending Phases** | **Phases 7–14** | Conversational chat interface (Next.js), streaming responses, citation resolution UI, Keycloak OAuth, replication sync, Docker, K8s, CI/CD. |
+| **Current Phase** | **Phase 6 (Core RAG Engine & Citation Resolution)** | Completed: Qdrant setup, SentenceTransformers embeddings (`UKA-23` to `UKA-25`), Grounded prompt construction (`UKA-27`), Confidence threshold gating (`UKA-26`), Groq LLM client (`UKA-28`), Deterministic citation resolver (`UKA-29`). |
+| **Completed Phases** | **Phases 1, 2, 3, 4, 5 & 6** | Planning, Git/JIRA Setup, Backend Skeleton, PostgreSQL Schema, Document Pipeline, Core RAG & Citations (`UKA-16` through `UKA-29`). |
+| **Pending Phases** | **Phases 7–14** | Conversational chat interface (Next.js), streaming responses, Keycloak OAuth, replication sync, Docker, K8s, CI/CD. |
 | **Blocked Items** | **None** | All integrations (GitHub MCP, JIRA TWG, MinIO, PostgreSQL, Qdrant, Groq LLM) verified and operational. |
-| **Active JIRA Board** | [`UKA`](https://nightbladeninja.atlassian.net/jira/software/projects/UKA/boards) | 14 Epics created; Core RAG validated with 43 passing automated tests. |
-| **Latest Test Status** | **PASSED** | 43/43 backend, schema, document API, vector retrieval, and core RAG tests passed (`TEST-UNIT-001`, `TEST-SCHEMA-001`, `TEST-DOC-001`, `TEST-PIPE-001`, `TEST-VEC-001`, `TEST-RAG-001`). |
+| **Active JIRA Board** | [`UKA`](https://nightbladeninja.atlassian.net/jira/software/projects/UKA/boards) | 14 Epics created; Citation resolution validated with 49 passing automated tests. |
+| **Latest Test Status** | **PASSED** | 49/49 backend, schema, document API, vector retrieval, core RAG, and citation tests passed (`TEST-UNIT-001`, `TEST-SCHEMA-001`, `TEST-DOC-001`, `TEST-PIPE-001`, `TEST-VEC-001`, `TEST-RAG-001`, `TEST-CIT-001`). |
 
 ---
 
@@ -79,7 +79,7 @@
 | `UKA-26` | Retrieval Confidence Threshold Gating and Fallback | `UKA-5` | Must Have | ✅ **Done** |
 | `UKA-27` | Grounded Prompt Construction with XML Context Delimiters | `UKA-5` | Must Have | ✅ **Done** |
 | `UKA-28` | Groq API LLM Client and Low-Temperature Generation | `UKA-5` | Must Have | ✅ **Done** |
-| `UKA-29` | Deterministic Citation Resolver from Verified Chunks | `UKA-6` | Must Have | To Do |
+| `UKA-29` | Deterministic Citation Resolver from Verified Chunks | `UKA-6` | Must Have | ✅ **Done** |
 | `UKA-30` | Frontend Citation Display and Source Document Viewer | `UKA-6` | Should Have | To Do |
 | `UKA-31` | Next.js 14 Web Application Layout and Grayscale Theme | `UKA-7` | Must Have | To Do |
 | `UKA-32` | Chat Interface with Token-by-Token SSE Stream Consumption | `UKA-7` | Must Have | To Do |
@@ -101,6 +101,7 @@
 | `TEST-PIPE-001` | PDF Processing & Vector Indexing | ✅ **PASSED** | 10 tests passing (PyMuPDF extraction, cleaning, chunking, all-MiniLM-L6-v2 embeddings, Qdrant vectors, end-to-end status lifecycle). |
 | `TEST-VEC-001` | Qdrant Cosine Retrieval & Idempotency | ✅ **PASSED** | 2 tests passing (Prompt 8 payload field compliance, deterministic duplicate prevention, top-k semantic search query endpoint). |
 | `TEST-RAG-001` | RAG Prompt Assembly & Fallback Gating | ✅ **PASSED** | 7 tests passing (anti-injection XML boundaries, top-k retrieval, confidence threshold fallback, grounded answering via Groq, POST /rag/query). |
+| `TEST-CIT-001` | Deterministic Citation Resolver & Mapping | ✅ **PASSED** | 6 tests passing (chunk-to-PostgreSQL mapping, filename/page extraction, section inclusion, deduplication, omission of incomplete metadata). |
 | `TEST-AUTH-001` | Keycloak JWT Authentication | ⏳ Pending | Scheduled for Phase 8 (`UKA-8`). |
 | `TEST-DB-001` | Multi-Replica Read-After-Write Sync | ⏳ Pending | Scheduled for Phase 9 (`UKA-10`). |
 | `TEST-CONC-001` | Optimistic Locking 409 Conflict | ⏳ Pending | Scheduled for Phase 9 (`UKA-10`). |

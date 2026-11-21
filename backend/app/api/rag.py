@@ -7,8 +7,10 @@ Endpoints:
 from typing import List, Dict, Optional
 from fastapi import APIRouter, Depends, status
 from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.core.auth_dev import get_current_user
+from backend.app.db.session import get_db
 from backend.app.db.models import User
 from backend.app.rag.rag_service import rag_service, RAGResponse
 
@@ -39,6 +41,7 @@ class RAGQueryRequest(BaseModel):
 async def query_rag(
     request: RAGQueryRequest,
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ) -> RAGResponse:
     """Executes the end-to-end RAG pipeline for the authenticated user."""
     return await rag_service.answer_question(
@@ -47,4 +50,5 @@ async def query_rag(
         top_k=request.top_k,
         confidence_threshold=request.confidence_threshold,
         filter_category=request.category,
+        session=db,
     )

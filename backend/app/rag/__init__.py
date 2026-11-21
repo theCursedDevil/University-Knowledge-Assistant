@@ -12,6 +12,7 @@ from backend.app.rag.pipeline import ProcessingResult, process_document
 from backend.app.rag.prompt import build_rag_prompt
 from backend.app.rag.retriever import VectorRetriever, vector_retriever, RetrievalResult
 from backend.app.rag.llm import LLMClient, llm_client
+from backend.app.rag.citation import Citation, CitationResolver, citation_resolver
 from backend.app.rag.rag_service import RAGService, rag_service, RAGResponse
 
 __all__ = [
@@ -33,6 +34,9 @@ __all__ = [
     "RetrievalResult",
     "LLMClient",
     "llm_client",
+    "Citation",
+    "CitationResolver",
+    "citation_resolver",
     "RAGService",
     "rag_service",
     "RAGResponse",
