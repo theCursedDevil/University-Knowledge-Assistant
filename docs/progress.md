@@ -11,8 +11,8 @@
 
 | Metric | Status | Details |
 |---|:---:|---|
-| **Current Phase** | **Phase 2 (Git + JIRA Setup)** | Initial repository structure, hygiene configuration, and JIRA backlog initialization. |
-| **Completed Phases** | **Phase 1** | Planning & Requirements (SRS, SDD, Roadmap, Decisions, Traceability Matrix). |
+| **Current Phase** | **Phase 3 (Backend Skeleton)** | FastAPI application factory, settings configuration, and healthcheck endpoint (`UKA-17`). |
+| **Completed Phases** | **Phases 1 & 2** | Planning & Requirements, Git + JIRA Setup, Repo Skeleton, Hygiene Baseline (`UKA-16`). |
 | **Pending Phases** | **Phases 3–14** | Implementation, RAG core, chat UI, OAuth, replication sync, Docker, K8s, CI/CD, testing. |
 | **Blocked Items** | **None** | All integrations (GitHub MCP, JIRA TWG) verified and operational. |
 | **Active JIRA Board** | [`UKA`](https://nightbladeninja.atlassian.net/jira/software/projects/UKA/boards) | 14 Epics created; Sprint 1 implementation tasks populated. |
@@ -25,8 +25,8 @@
 | Phase # | Phase Name | Tier | Status | Relevant JIRA Tickets | Completion Date |
 |:---:|---|:---:|:---:|---|:---:|
 | **1** | **Planning & Requirements Baseline** | Foundation | ✅ **COMPLETED** | `UKA-1` | 2026-11-21 |
-| **2** | **Git & JIRA Setup, Repo Skeleton** | Foundation | 🟡 **IN PROGRESS** | `UKA-1`, `UKA-16` | Expected: Current |
-| **3** | **Backend Skeleton (FastAPI)** | Tier 1 (MVP) | ⏳ PENDING | `UKA-1`, `UKA-17` | Sprint 1 |
+| **2** | **Git & JIRA Setup, Repo Skeleton** | Foundation | ✅ **COMPLETED** | `UKA-1`, `UKA-16` | 2026-11-21 |
+| **3** | **Backend Skeleton (FastAPI)** | Tier 1 (MVP) | 🟡 **IN PROGRESS** | `UKA-1`, `UKA-17` | Sprint 1 |
 | **4** | **Database Schema & Migrations** | Tier 1 (MVP) | ⏳ PENDING | `UKA-1`, `UKA-18` | Sprint 1 |
 | **5** | **Document Ingestion Pipeline** | Tier 1 (MVP) | ⏳ PENDING | `UKA-3`, `UKA-19` to `UKA-22` | Sprint 1 |
 | **6** | **RAG Core Engine (Embeddings & Groq)** | Tier 1 (MVP) | ⏳ PENDING | `UKA-4`, `UKA-5`, `UKA-6` | Sprint 2 |
@@ -66,8 +66,8 @@
 
 | JIRA Key | Task Summary | Parent Epic | Priority | Status |
 |---|---|---|:---:|:---:|
-| `UKA-16` | Repository Setup, Hygiene, and Environment Configuration | `UKA-1` | Must Have | **In Progress** |
-| `UKA-17` | FastAPI Backend Application Factory and Healthcheck Endpoint | `UKA-1` | Must Have | To Do |
+| `UKA-16` | Repository Setup, Hygiene, and Environment Configuration | `UKA-1` | Must Have | ✅ **Done** |
+| `UKA-17` | FastAPI Backend Application Factory and Healthcheck Endpoint | `UKA-1` | Must Have | 🟡 **In Progress** |
 | `UKA-18` | SQLAlchemy Relational Models and Alembic Async Migrations | `UKA-1` | Must Have | To Do |
 | `UKA-19` | Multipart Document Upload API and MinIO Storage | `UKA-3` | Must Have | To Do |
 | `UKA-20` | PyMuPDF Text Extraction with Page Indexing and Header Detection | `UKA-3` | Must Have | To Do |
