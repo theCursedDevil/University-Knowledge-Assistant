@@ -201,6 +201,7 @@ Endpoints:
 | `GET` | `/api/v1/documents` | List uploaded documents with category filtering and pagination | User (`X-Dev-Role`) |
 | `GET` | `/api/v1/documents/{id}/chunks` | Retrieve chunk metadata, page provenance, and vector IDs | User (`X-Dev-Role`) |
 | `POST` | `/api/v1/documents/{id}/process` | Trigger synchronous PDF extraction, chunking, and Qdrant indexing | Admin (`X-Dev-Role: admin`) |
+| `POST` | `/api/v1/documents/search` | Top-k semantic vector search with cosine similarity | User (`X-Dev-Role`) |
 | `DELETE` | `/api/v1/documents/{id}` | Cascading deletion across MinIO, Qdrant vectors, and PostgreSQL | Admin (`X-Dev-Role: admin`) |
 
 ### Database Migrations (Alembic)

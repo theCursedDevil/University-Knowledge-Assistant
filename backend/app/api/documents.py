@@ -36,7 +36,7 @@ from backend.app.db.session import get_db
 from backend.app.db.models import User, Document, DocumentChunkMeta, AuditLog
 from backend.app.services.storage import storage_service
 from backend.app.rag.pipeline import process_document, ProcessingResult
-from backend.app.rag.vector_store import vector_store
+from backend.app.rag.vector_store import vector_store, SearchResult
 
 settings = get_settings()
 router = APIRouter()
@@ -340,4 +340,36 @@ async def delete_document(
     return DocumentDeleteResponse(
         message="Document successfully deleted",
         id=id,
+    )
+
+
+class DocumentSearchRequest(BaseModel):
+    """Schema for semantic vector search requests."""
+
+    query: str = Field(..., min_length=2, max_length=1000, description="Semantic text query.")
+    limit: int = Field(default=5, ge=1, le=50, description="Number of top results to return.")
+    score_threshold: Optional[float] = Field(default=0.0, ge=0.0, le=1.0, description="Minimum cosine similarity.")
+    category: Optional[str] = Field(default=None, description="Filter by document category.")
+    document_id: Optional[uuid.UUID] = Field(default=None, description="Filter by specific document ID.")
+
+
+@router.post(
+    "/documents/search",
+    response_model=List[SearchResult],
+    status_code=status.HTTP_200_OK,
+    summary="Semantic Vector Search",
+    description="Performs top-k cosine similarity search against indexed document chunks using all-MiniLM-L6-v2 embeddings.",
+    tags=["Documents"],
+)
+async def search_documents(
+    search_request: DocumentSearchRequest,
+    current_user: User = Depends(get_current_user),
+) -> List[SearchResult]:
+    """Retrieves top-k relevant chunks from Qdrant matching the search query."""
+    return vector_store.search(
+        query=search_request.query,
+        limit=search_request.limit,
+        score_threshold=search_request.score_threshold,
+        filter_category=search_request.category,
+        filter_document_id=search_request.document_id,
     )

@@ -37,6 +37,20 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         settings.ENVIRONMENT,
         settings.DEBUG,
     )
+
+    # 1. Initialize SentenceTransformer embedding model once at startup for safe reuse
+    try:
+        from backend.app.rag.embeddings import embedding_client
+        from backend.app.rag.vector_store import vector_store
+
+        logger.info("Initializing SentenceTransformer '%s' on CPU...", settings.EMBEDDING_MODEL_NAME)
+        _ = embedding_client.model
+        logger.info("Verifying Qdrant vector collection '%s'...", settings.QDRANT_COLLECTION)
+        vector_store.ensure_collection_exists()
+        logger.info("Embedding model and Qdrant vector store successfully initialized.")
+    except Exception as exc:
+        logger.warning("Startup AI model pre-initialization deferred: %s", exc)
+
     yield
     logger.info("Shutting down %s", settings.PROJECT_NAME)
 

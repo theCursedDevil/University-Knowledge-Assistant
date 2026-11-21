@@ -11,12 +11,12 @@
 
 | Metric | Status | Details |
 |---|:---:|---|
-| **Current Phase** | **Phase 5 (Document Ingestion Pipeline)** | Completed: MinIO storage, Document APIs (`UKA-19`, `UKA-22`), PyMuPDF extraction, LangChain chunking, SentenceTransformers embeddings, Qdrant indexing (`UKA-20`, `UKA-21`). |
-| **Completed Phases** | **Phases 1, 2, 3, 4 & 5** | Planning, Git/JIRA Setup, Backend Skeleton, PostgreSQL Schema, Document Pipeline (`UKA-16` through `UKA-22`). |
-| **Pending Phases** | **Phases 6–14** | RAG core engine (`UKA-4`, `UKA-5`), chat UI, OAuth, replication sync, Docker, K8s, CI/CD, testing. |
+| **Current Phase** | **Phase 6 (Vector Store & RAG Retrieval Integration)** | Completed: Qdrant setup, SentenceTransformers embeddings (`UKA-23`, `UKA-24`), Cosine vector retrieval & search endpoint (`UKA-25`). Next: Grounded prompts & LLM client (`UKA-26` to `UKA-28`). |
+| **Completed Phases** | **Phases 1, 2, 3, 4 & 5 (plus Vector Store Integration)** | Planning, Git/JIRA Setup, Backend Skeleton, PostgreSQL Schema, Document Pipeline, Qdrant Integration (`UKA-16` through `UKA-25`). |
+| **Pending Phases** | **Phases 6–14** | LLM streaming, grounded prompt construction, citation resolver, chat UI, OAuth, replication sync, Docker, K8s, CI/CD, testing. |
 | **Blocked Items** | **None** | All integrations (GitHub MCP, JIRA TWG, MinIO, PostgreSQL, Qdrant) verified and operational. |
-| **Active JIRA Board** | [`UKA`](https://nightbladeninja.atlassian.net/jira/software/projects/UKA/boards) | 14 Epics created; Pipeline validated with 34 passing automated tests. |
-| **Latest Test Status** | **PASSED** | 34/34 backend, schema, document API, and RAG pipeline tests passed (`TEST-UNIT-001`, `TEST-SCHEMA-001`, `TEST-DOC-001`, `TEST-PIPE-001`). |
+| **Active JIRA Board** | [`UKA`](https://nightbladeninja.atlassian.net/jira/software/projects/UKA/boards) | 14 Epics created; Vector search validated with 36 passing automated tests. |
+| **Latest Test Status** | **PASSED** | 36/36 backend, schema, document API, and Qdrant semantic retrieval tests passed (`TEST-UNIT-001`, `TEST-SCHEMA-001`, `TEST-DOC-001`, `TEST-PIPE-001`, `TEST-VEC-001`). |
 
 ---
 
@@ -75,7 +75,7 @@
 | `UKA-22` | Document Listing and Cascading Deletion Saga | `UKA-3` | Must Have | ✅ **Done** |
 | `UKA-23` | Sentence Transformers Embedding Client Integration | `UKA-4` | Must Have | ✅ **Done** |
 | `UKA-24` | Qdrant Collection Setup and Vector Batch Indexing | `UKA-4` | Must Have | ✅ **Done** |
-| `UKA-25` | Top-K Cosine Similarity Vector Retrieval | `UKA-4` | Must Have | To Do |
+| `UKA-25` | Top-K Cosine Similarity Vector Retrieval | `UKA-4` | Must Have | ✅ **Done** |
 | `UKA-26` | Retrieval Confidence Threshold Gating and Fallback | `UKA-5` | Must Have | To Do |
 | `UKA-27` | Grounded Prompt Construction with XML Context Delimiters | `UKA-5` | Must Have | To Do |
 | `UKA-28` | Groq API LLM Client and Token-by-Token Streaming | `UKA-5` | Must Have | To Do |
@@ -99,6 +99,7 @@
 | `TEST-SCHEMA-001` | PostgreSQL 16 Schema & Migrations | ✅ **PASSED** | 5 integration tests passing (tables, cascades, check constraints, live DB probe). |
 | `TEST-DOC-001` | Document Ingestion Integration | ✅ **PASSED** | 9 tests passing (upload, MinIO storage, MIME/magic validation, 413 limit, list, delete, audit). |
 | `TEST-PIPE-001` | PDF Processing & Vector Indexing | ✅ **PASSED** | 10 tests passing (PyMuPDF extraction, cleaning, chunking, all-MiniLM-L6-v2 embeddings, Qdrant vectors, end-to-end status lifecycle). |
+| `TEST-VEC-001` | Qdrant Cosine Retrieval & Idempotency | ✅ **PASSED** | 2 tests passing (Prompt 8 payload field compliance, deterministic duplicate prevention, top-k semantic search query endpoint). |
 | `TEST-RAG-001` | RAG Answer & Fallback Evaluation | ⏳ Pending | Scheduled for Phase 6 (`UKA-26`, `UKA-28`). |
 | `TEST-AUTH-001` | Keycloak JWT Authentication | ⏳ Pending | Scheduled for Phase 8 (`UKA-8`). |
 | `TEST-DB-001` | Multi-Replica Read-After-Write Sync | ⏳ Pending | Scheduled for Phase 9 (`UKA-10`). |

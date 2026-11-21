@@ -6,7 +6,7 @@ Provides text extraction, cleaning, chunking, embeddings, vector storage, and pi
 from backend.app.rag.extractor import ExtractedPage, clean_text, extract_text_from_pdf
 from backend.app.rag.chunker import DocumentChunk, chunk_document_pages
 from backend.app.rag.embeddings import EmbeddingClient, embedding_client
-from backend.app.rag.vector_store import QdrantVectorStore, vector_store
+from backend.app.rag.vector_store import QdrantVectorStore, vector_store, SearchResult
 from backend.app.rag.pipeline import ProcessingResult, process_document
 
 __all__ = [
@@ -19,6 +19,7 @@ __all__ = [
     "embedding_client",
     "QdrantVectorStore",
     "vector_store",
+    "SearchResult",
     "ProcessingResult",
     "process_document",
 ]

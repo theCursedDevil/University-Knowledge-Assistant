@@ -34,15 +34,14 @@ def generate_test_pdf(num_pages: int = 3) -> bytes:
         page = doc.new_page()
         text = (
             f"Section {page_num}: Academic Policy and Regulations {page_num}\n\n"
-            f"This is the official university academic regulation policy documentation for page {page_num}. "
+            f"This is the official university academic regulation policy documentation for page {page_num}.\n"
             f"Students enrolled in the B.Tech Computer Science and Engineering program must maintain a minimum "
-            f"Cumulative Grade Point Average (CGPA) of 6.0 out of 10.0 to remain in good standing. "
+            f"Cumulative Grade Point Average (CGPA) of 6.0 out of 10.0 to remain in good standing.\n"
             f"Attendance requirements mandate at least 75 percent physical attendance in all registered lecture, "
             f"tutorial, and practical laboratory sessions. Students falling below this threshold will be debarred.\n\n"
-            * 6
-            + f"Page {page_num} of {num_pages}"  # Footer artifact to be cleaned
+            f"Page {page_num} of {num_pages}"  # Footer artifact to be cleaned
         )
-        page.insert_text(fitz.Point(50, 72), text)
+        page.insert_textbox(fitz.Rect(50, 50, 550, 780), text)
 
     pdf_bytes = doc.tobytes()
     doc.close()
@@ -294,4 +293,142 @@ async def test_pipeline_failure_corrupted_pdf_marks_failed(client: TestClient, d
     assert audit_res.scalar_one_or_none() is not None
 
     # Cleanup
+    client.delete(f"/api/v1/documents/{doc_id}", headers={"X-Dev-Role": "admin"})
+
+
+@pytest.mark.asyncio
+async def test_qdrant_payload_fields_and_duplicate_prevention():
+    """Verifies that vector payloads strictly contain all Prompt 8 required metadata fields
+    and that re-processing a document does not produce duplicate vectors."""
+    doc_id = uuid.uuid4()
+    chunks = [
+        DocumentChunk(
+            chunk_index=0,
+            text="Undergraduate students must complete 160 credits for B.Tech degree.",
+            page=1,
+            section="Section 1: Graduation Requirements",
+            char_count=67,
+        ),
+        DocumentChunk(
+            chunk_index=1,
+            text="Minimum CGPA of 6.0 is required without active backlogs for placement eligibility.",
+            page=2,
+            section="Section 2: Career Services",
+            char_count=82,
+        ),
+    ]
+    embeddings = embedding_client.embed_texts([c.text for c in chunks])
+
+    # First upsert
+    vector_ids_1 = vector_store.upsert_chunks(
+        document_id=doc_id,
+        document_title="Degree Regulations 2026",
+        category="Academic",
+        chunks=chunks,
+        embeddings=embeddings,
+    )
+    assert len(vector_ids_1) == 2
+
+    # Verify payload fields in Qdrant
+    points = vector_store.client.retrieve(
+        collection_name=vector_store.collection_name,
+        ids=[vector_ids_1[0]],
+        with_payload=True,
+    )
+    assert len(points) == 1
+    payload = points[0].payload
+    # Prompt 8 required metadata fields:
+    assert payload["document_id"] == str(doc_id)
+    assert payload["chunk_text"] == chunks[0].text
+    assert payload["page"] == 1
+    assert payload["section"] == "Section 1: Graduation Requirements"
+    assert payload["document_name"] == "Degree Regulations 2026"
+    assert payload["chunk_id"] == vector_ids_1[0]
+
+    # Verify initial vector count in Qdrant
+    initial_count = vector_store.count_document_vectors(doc_id)
+    assert initial_count == 2
+
+    # Second upsert (simulating accidental re-processing)
+    vector_ids_2 = vector_store.upsert_chunks(
+        document_id=doc_id,
+        document_title="Degree Regulations 2026",
+        category="Academic",
+        chunks=chunks,
+        embeddings=embeddings,
+    )
+
+    # Deterministic IDs ensure vector IDs match
+    assert vector_ids_1 == vector_ids_2
+
+    # Verify vector count in Qdrant did NOT double
+    after_reprocess_count = vector_store.count_document_vectors(doc_id)
+    assert after_reprocess_count == 2, f"Expected 2 points, got {after_reprocess_count} (duplicates occurred)"
+
+    # Clean up
+    vector_store.delete_document_vectors(doc_id)
+    assert vector_store.count_document_vectors(doc_id) == 0
+
+
+@pytest.mark.asyncio
+async def test_upload_and_semantic_search_retrieval(client: TestClient, db_session):
+    """Verifies that uploading a PDF creates searchable vectors and that top-k cosine similarity retrieval functions accurately."""
+    pdf_bytes = generate_test_pdf(num_pages=2)
+    filename = "university_grading_policy.pdf"
+
+    # 1. Upload & trigger processing
+    upload_resp = client.post(
+        "/api/v1/documents?auto_process=false",
+        headers={"X-Dev-Role": "admin"},
+        data={"category": "Academic", "title": "University Grading and CGPA Policy"},
+        files={"file": (filename, io.BytesIO(pdf_bytes), "application/pdf")},
+    )
+    assert upload_resp.status_code == 201
+    doc_id = uuid.UUID(upload_resp.json()["id"])
+
+    proc_resp = client.post(
+        f"/api/v1/documents/{doc_id}/process",
+        headers={"X-Dev-Role": "admin"},
+    )
+    assert proc_resp.status_code == 200
+    assert proc_resp.json()["status"] == "ready"
+
+    # 2. Semantic query matching the uploaded text
+    search_resp = client.post(
+        "/api/v1/documents/search",
+        headers={"X-Dev-Role": "student"},
+        json={
+            "query": "What is the minimum CGPA and attendance requirement?",
+            "limit": 3,
+            "category": "Academic",
+        },
+    )
+    assert search_resp.status_code == 200
+    results = search_resp.json()
+    assert len(results) > 0
+
+    top_hit = results[0]
+    # Check score and text relevance
+    assert top_hit["score"] > 0.2
+    assert "CGPA" in top_hit["chunk_text"] or "attendance" in top_hit["chunk_text"].lower()
+    assert top_hit["document_id"] == str(doc_id)
+    assert top_hit["document_name"] == "University Grading and CGPA Policy"
+    assert top_hit["page"] in (1, 2)
+    assert top_hit["category"] == "Academic"
+    assert len(top_hit["chunk_id"]) > 0
+
+    # 3. Filter check: Searching with a non-matching category returns no hits
+    mismatched_filter_resp = client.post(
+        "/api/v1/documents/search",
+        headers={"X-Dev-Role": "student"},
+        json={
+            "query": "What is the minimum CGPA and attendance requirement?",
+            "limit": 3,
+            "category": "Hostel",
+        },
+    )
+    assert mismatched_filter_resp.status_code == 200
+    assert len(mismatched_filter_resp.json()) == 0
+
+    # 4. Clean up
     client.delete(f"/api/v1/documents/{doc_id}", headers={"X-Dev-Role": "admin"})
