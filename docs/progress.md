@@ -11,12 +11,12 @@
 
 | Metric | Status | Details |
 |---|:---:|---|
-| **Current Phase** | **Phase 6 (Vector Store & RAG Retrieval Integration)** | Completed: Qdrant setup, SentenceTransformers embeddings (`UKA-23`, `UKA-24`), Cosine vector retrieval & search endpoint (`UKA-25`). Next: Grounded prompts & LLM client (`UKA-26` to `UKA-28`). |
-| **Completed Phases** | **Phases 1, 2, 3, 4 & 5 (plus Vector Store Integration)** | Planning, Git/JIRA Setup, Backend Skeleton, PostgreSQL Schema, Document Pipeline, Qdrant Integration (`UKA-16` through `UKA-25`). |
-| **Pending Phases** | **Phases 6–14** | LLM streaming, grounded prompt construction, citation resolver, chat UI, OAuth, replication sync, Docker, K8s, CI/CD, testing. |
-| **Blocked Items** | **None** | All integrations (GitHub MCP, JIRA TWG, MinIO, PostgreSQL, Qdrant) verified and operational. |
-| **Active JIRA Board** | [`UKA`](https://nightbladeninja.atlassian.net/jira/software/projects/UKA/boards) | 14 Epics created; Vector search validated with 36 passing automated tests. |
-| **Latest Test Status** | **PASSED** | 36/36 backend, schema, document API, and Qdrant semantic retrieval tests passed (`TEST-UNIT-001`, `TEST-SCHEMA-001`, `TEST-DOC-001`, `TEST-PIPE-001`, `TEST-VEC-001`). |
+| **Current Phase** | **Phase 6 (Core RAG Engine & Generation)** | Completed: Qdrant setup, SentenceTransformers embeddings (`UKA-23`, `UKA-24`, `UKA-25`), Grounded prompt construction with XML delimiters (`UKA-27`), Confidence threshold gating (`UKA-26`), Groq LLM client (`UKA-28`). |
+| **Completed Phases** | **Phases 1, 2, 3, 4, 5 & 6** | Planning, Git/JIRA Setup, Backend Skeleton, PostgreSQL Schema, Document Pipeline, Core RAG Engine (`UKA-16` through `UKA-28`). |
+| **Pending Phases** | **Phases 7–14** | Conversational chat interface (Next.js), streaming responses, citation resolution UI, Keycloak OAuth, replication sync, Docker, K8s, CI/CD. |
+| **Blocked Items** | **None** | All integrations (GitHub MCP, JIRA TWG, MinIO, PostgreSQL, Qdrant, Groq LLM) verified and operational. |
+| **Active JIRA Board** | [`UKA`](https://nightbladeninja.atlassian.net/jira/software/projects/UKA/boards) | 14 Epics created; Core RAG validated with 43 passing automated tests. |
+| **Latest Test Status** | **PASSED** | 43/43 backend, schema, document API, vector retrieval, and core RAG tests passed (`TEST-UNIT-001`, `TEST-SCHEMA-001`, `TEST-DOC-001`, `TEST-PIPE-001`, `TEST-VEC-001`, `TEST-RAG-001`). |
 
 ---
 
@@ -29,7 +29,7 @@
 | **3** | **Backend Skeleton (FastAPI)** | Tier 1 (MVP) | ✅ **COMPLETED** | `UKA-1`, `UKA-17` | 2026-11-21 |
 | **4** | **Database Schema & Migrations** | Tier 1 (MVP) | ✅ **COMPLETED** | `UKA-1`, `UKA-18` | 2026-11-21 |
 | **5** | **Document Ingestion Pipeline** | Tier 1 (MVP) | ✅ **COMPLETED** | `UKA-3`, `UKA-19` to `UKA-22` | 2026-11-21 |
-| **6** | **RAG Core Engine (Embeddings & Groq)** | Tier 1 (MVP) | ⏳ PENDING | `UKA-4`, `UKA-5`, `UKA-6` | Sprint 2 |
+| **6** | **RAG Core Engine (Embeddings & Groq)** | Tier 1 (MVP) | ✅ **COMPLETED** | `UKA-4`, `UKA-5`, `UKA-23` to `UKA-28` | 2026-11-21 |
 | **7** | **Conversational Interface (Next.js)** | Tier 1 (MVP) | ⏳ PENDING | `UKA-7`, `UKA-8` | Sprint 2 |
 | **8** | **OAuth 2.0 / OIDC & RBAC (Keycloak)** | Tier 2 (Graded) | ⏳ PENDING | `UKA-8` | Sprint 3 |
 | **9** | **Database Synchronization & Replicas** | Tier 2 (Graded) | ⏳ PENDING | `UKA-10`, `UKA-11` | Sprint 3 |
@@ -76,9 +76,9 @@
 | `UKA-23` | Sentence Transformers Embedding Client Integration | `UKA-4` | Must Have | ✅ **Done** |
 | `UKA-24` | Qdrant Collection Setup and Vector Batch Indexing | `UKA-4` | Must Have | ✅ **Done** |
 | `UKA-25` | Top-K Cosine Similarity Vector Retrieval | `UKA-4` | Must Have | ✅ **Done** |
-| `UKA-26` | Retrieval Confidence Threshold Gating and Fallback | `UKA-5` | Must Have | To Do |
-| `UKA-27` | Grounded Prompt Construction with XML Context Delimiters | `UKA-5` | Must Have | To Do |
-| `UKA-28` | Groq API LLM Client and Token-by-Token Streaming | `UKA-5` | Must Have | To Do |
+| `UKA-26` | Retrieval Confidence Threshold Gating and Fallback | `UKA-5` | Must Have | ✅ **Done** |
+| `UKA-27` | Grounded Prompt Construction with XML Context Delimiters | `UKA-5` | Must Have | ✅ **Done** |
+| `UKA-28` | Groq API LLM Client and Low-Temperature Generation | `UKA-5` | Must Have | ✅ **Done** |
 | `UKA-29` | Deterministic Citation Resolver from Verified Chunks | `UKA-6` | Must Have | To Do |
 | `UKA-30` | Frontend Citation Display and Source Document Viewer | `UKA-6` | Should Have | To Do |
 | `UKA-31` | Next.js 14 Web Application Layout and Grayscale Theme | `UKA-7` | Must Have | To Do |
@@ -100,7 +100,7 @@
 | `TEST-DOC-001` | Document Ingestion Integration | ✅ **PASSED** | 9 tests passing (upload, MinIO storage, MIME/magic validation, 413 limit, list, delete, audit). |
 | `TEST-PIPE-001` | PDF Processing & Vector Indexing | ✅ **PASSED** | 10 tests passing (PyMuPDF extraction, cleaning, chunking, all-MiniLM-L6-v2 embeddings, Qdrant vectors, end-to-end status lifecycle). |
 | `TEST-VEC-001` | Qdrant Cosine Retrieval & Idempotency | ✅ **PASSED** | 2 tests passing (Prompt 8 payload field compliance, deterministic duplicate prevention, top-k semantic search query endpoint). |
-| `TEST-RAG-001` | RAG Answer & Fallback Evaluation | ⏳ Pending | Scheduled for Phase 6 (`UKA-26`, `UKA-28`). |
+| `TEST-RAG-001` | RAG Prompt Assembly & Fallback Gating | ✅ **PASSED** | 7 tests passing (anti-injection XML boundaries, top-k retrieval, confidence threshold fallback, grounded answering via Groq, POST /rag/query). |
 | `TEST-AUTH-001` | Keycloak JWT Authentication | ⏳ Pending | Scheduled for Phase 8 (`UKA-8`). |
 | `TEST-DB-001` | Multi-Replica Read-After-Write Sync | ⏳ Pending | Scheduled for Phase 9 (`UKA-10`). |
 | `TEST-CONC-001` | Optimistic Locking 409 Conflict | ⏳ Pending | Scheduled for Phase 9 (`UKA-10`). |

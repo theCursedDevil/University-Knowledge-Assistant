@@ -3,6 +3,7 @@
 from fastapi import APIRouter
 from backend.app.api.health import router as health_router
 from backend.app.api.documents import router as documents_router
+from backend.app.api.rag import router as rag_router
 
 api_router = APIRouter()
 
@@ -11,6 +12,9 @@ api_router.include_router(health_router, tags=["Health"])
 
 # Mount document management routes under API prefix (/api/v1/documents)
 api_router.include_router(documents_router, tags=["Documents"])
+
+# Mount core RAG query route under API prefix (/api/v1/rag/query)
+api_router.include_router(rag_router, tags=["RAG"])
 
 # Future Phase Routers:
 # api_router.include_router(auth_router, prefix="/auth", tags=["Auth"])

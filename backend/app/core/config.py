@@ -111,6 +111,21 @@ class Settings(BaseSettings):
     # Embedding Model
     EMBEDDING_MODEL_NAME: str = Field(default="sentence-transformers/all-MiniLM-L6-v2")
 
+    # RAG Generation & Grounding Parameters
+    RAG_TOP_K: int = Field(default=5, description="Default number of chunks retrieved per question.")
+    RAG_CONFIDENCE_THRESHOLD: float = Field(
+        default=0.30,
+        description="Minimum cosine similarity required for relevant chunk gating.",
+    )
+    RAG_LLM_TEMPERATURE: float = Field(
+        default=0.1,
+        description="Low temperature generation (0.0 to 0.3) for factual grounded answers.",
+    )
+    RAG_INSUFFICIENT_CONTEXT_MESSAGE: str = Field(
+        default="I couldn't find sufficient information about this in the available university documents.",
+        description="Standard fallback response when retrieval confidence is insufficient.",
+    )
+
     @property
     def sync_database_url(self) -> str:
         """Synchronous connection URL for Alembic migrations and synchronous drivers."""
