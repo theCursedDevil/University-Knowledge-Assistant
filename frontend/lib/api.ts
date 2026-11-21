@@ -129,11 +129,17 @@ export interface ApiAuditLog {
 
 export interface ApiAdminStats {
   total_documents: number;
+  processed_documents: number;
+  failed_documents: number;
+  processing_documents: number;
   total_chunks: number;
   total_conversations: number;
   total_messages: number;
+  total_questions: number;
+  total_answers: number;
   total_users: number;
   documents_by_category: Record<string, number>;
+  documents_by_status: Record<string, number>;
   recent_audit_logs: ApiAuditLog[];
 }
 
@@ -477,6 +483,31 @@ export async function fetchAdminStats(): Promise<ApiAdminStats> {
   if (!res.ok) {
     const errBody = await res.json().catch(() => ({}));
     throw new Error(errBody?.error?.message || `Failed to fetch admin analytics: HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function fetchAdminAuditLogs(params?: {
+  action?: string;
+  entity?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<ApiAuditLog[]> {
+  const headers = getAuthHeaders();
+  const query = new URLSearchParams();
+  if (params?.action) query.set("action", params.action);
+  if (params?.entity) query.set("entity", params.entity);
+  if (params?.limit) query.set("limit", String(params.limit));
+  if (params?.offset) query.set("offset", String(params.offset));
+
+  const url = `${API_BASE_URL}/admin/audit-logs${query.toString() ? `?${query.toString()}` : ""}`;
+  const res = await fetch(url, {
+    headers: { ...headers, "Content-Type": "application/json" },
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    const errBody = await res.json().catch(() => ({}));
+    throw new Error(errBody?.error?.message || `Failed to fetch audit logs: HTTP ${res.status}`);
   }
   return res.json();
 }

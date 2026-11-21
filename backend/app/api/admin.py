@@ -40,13 +40,19 @@ class AuditLogResponse(BaseModel):
 class AdminStatsResponse(BaseModel):
     """Schema for comprehensive system analytics."""
 
-    total_documents: int
-    total_chunks: int
-    total_conversations: int
-    total_messages: int
-    total_users: int
-    documents_by_category: Dict[str, int]
-    recent_audit_logs: List[AuditLogResponse]
+    total_documents: int = Field(..., description="Total uploaded documents.")
+    processed_documents: int = Field(default=0, description="Successfully processed documents ('ready').")
+    failed_documents: int = Field(default=0, description="Documents where ingestion failed.")
+    processing_documents: int = Field(default=0, description="Documents currently undergoing processing.")
+    total_chunks: int = Field(..., description="Total vector chunks indexed.")
+    total_conversations: int = Field(..., description="Total conversation threads.")
+    total_messages: int = Field(..., description="Total messages exchanged.")
+    total_questions: int = Field(default=0, description="Total user questions asked.")
+    total_answers: int = Field(default=0, description="Total assistant answers generated.")
+    total_users: int = Field(..., description="Total registered users.")
+    documents_by_category: Dict[str, int] = Field(default_factory=dict, description="Count of documents per category.")
+    documents_by_status: Dict[str, int] = Field(default_factory=dict, description="Count of documents per processing status.")
+    recent_audit_logs: List[AuditLogResponse] = Field(default_factory=list, description="Recent audit log events.")
 
 
 class UserAdminResponse(BaseModel):
@@ -80,32 +86,76 @@ async def get_admin_stats(
     db: AsyncSession = Depends(get_db),
 ) -> AdminStatsResponse:
     """Aggregates system statistics from PostgreSQL tables."""
-    # 1. Counts
+    # 1. Document Lifecycle Counts
     total_docs = await db.scalar(select(func.count(Document.id))) or 0
+    processed_docs = await db.scalar(select(func.count(Document.id)).where(Document.status == "ready")) or 0
+    failed_docs = await db.scalar(select(func.count(Document.id)).where(Document.status == "failed")) or 0
+    processing_docs = await db.scalar(select(func.count(Document.id)).where(Document.status == "processing")) or 0
+
+    # Status breakdown
+    status_stmt = select(Document.status, func.count(Document.id)).group_by(Document.status)
+    status_res = await db.execute(status_stmt)
+    docs_by_status = {st or "unknown": cnt for st, cnt in status_res.all()}
+
+    # 2. Chunk, Conversation, Message & User Counts
     total_chunks = await db.scalar(select(func.count(DocumentChunkMeta.id))) or 0
     total_convs = await db.scalar(select(func.count(Conversation.id))) or 0
     total_msgs = await db.scalar(select(func.count(Message.id))) or 0
+    total_questions = await db.scalar(select(func.count(Message.id)).where(Message.role == "user")) or 0
+    total_answers = await db.scalar(select(func.count(Message.id)).where(Message.role == "assistant")) or 0
     total_users = await db.scalar(select(func.count(User.id))) or 0
 
-    # 2. Documents by Category
+    # 3. Documents by Category
     cat_stmt = select(Document.category, func.count(Document.id)).group_by(Document.category)
     cat_result = await db.execute(cat_stmt)
     docs_by_cat = {cat: count for cat, count in cat_result.all()}
 
-    # 3. Recent Audit Logs
-    audit_stmt = select(AuditLog).order_by(AuditLog.created_at.desc()).limit(15)
+    # 4. Recent Audit Logs
+    audit_stmt = select(AuditLog).order_by(AuditLog.created_at.desc()).limit(20)
     audit_res = await db.execute(audit_stmt)
     audit_logs = list(audit_res.scalars().all())
 
     return AdminStatsResponse(
         total_documents=total_docs,
+        processed_documents=processed_docs,
+        failed_documents=failed_docs,
+        processing_documents=processing_docs,
         total_chunks=total_chunks,
         total_conversations=total_convs,
         total_messages=total_msgs,
+        total_questions=total_questions,
+        total_answers=total_answers,
         total_users=total_users,
         documents_by_category=docs_by_cat,
+        documents_by_status=docs_by_status,
         recent_audit_logs=audit_logs,
     )
+
+
+@router.get(
+    "/audit-logs",
+    response_model=List[AuditLogResponse],
+    status_code=status.HTTP_200_OK,
+    summary="Query System Audit Logs",
+    description="Returns paginated audit trail events with optional filtering by action or entity. Administrator role required.",
+)
+async def list_audit_logs(
+    action: Optional[str] = None,
+    entity: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+    current_user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> List[AuditLogResponse]:
+    """Retrieves paginated audit log events for compliance and security auditing."""
+    stmt = select(AuditLog)
+    if action:
+        stmt = stmt.where(AuditLog.action == action.upper())
+    if entity:
+        stmt = stmt.where(AuditLog.entity == entity.lower())
+    stmt = stmt.order_by(AuditLog.created_at.desc()).offset(offset).limit(min(limit, 100))
+    res = await db.execute(stmt)
+    return list(res.scalars().all())
 
 
 @router.get(

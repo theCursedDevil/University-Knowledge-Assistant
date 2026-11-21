@@ -16,7 +16,7 @@
 | **Pending Phases** | **Phases 8–14** | Keycloak OAuth 2.0 integration, database replication sync & locking, Docker Compose 9-service stack, K8s manifests, CI/CD pipeline, and demo scripts. |
 | **Blocked Items** | **None** | All integrations (GitHub MCP, JIRA TWG, MinIO, PostgreSQL, Qdrant, Groq LLM, Next.js 14, SSE Streaming) verified and operational. |
 | **Active JIRA Board** | [`UKA`](https://nightbladeninja.atlassian.net/jira/software/projects/UKA/boards) | 14 Epics created; 18 frontend screens connected; 71 backend tests + 19 frontend routes verified. |
-| **Latest Test Status** | **PASSED** | 71/71 backend tests passing + Next.js production build (`19/19` static/dynamic routes) passing + 9/9 end-to-end integration workflows verified. |
+| **Latest Test Status** | **PASSED** | 88/88 backend tests passing + Next.js production build (`19/19` static/dynamic routes) passing + 9/9 end-to-end integration workflows verified. |
 
 ---
 
@@ -86,6 +86,7 @@
 | `UKA-33` | Multi-Turn Conversation History and Sidebar Management | `UKA-7` | Must Have | ✅ **Done** |
 | `UKA-34` | UI System States Implementation (Loading, Empty, Error, Forbidden) | `UKA-7` | Should Have | ✅ **Done** |
 | `UKA-35` | Connect Next.js Frontend to FastAPI Backend Endpoints | `UKA-7` | Must Have | ✅ **Done** |
+| `UKA-36` | Implement and Polish Admin Console (Document Mgmt, Analytics, Audit Trail) | `UKA-9` | Must Have | ✅ **Done** |
 
 ---
 
@@ -106,6 +107,7 @@
 | `TEST-CHAT-001` | Conversation Lifecycle & History Lookback | ✅ **PASSED** | 9 tests passing (POST/GET conversations, owner isolation, 403 forbidden, message posting, RAG integration, citation persistence, last 6 message history context, DB persistence). |
 | `TEST-STREAM-001` | SSE Token Streaming & Message Buffering | ✅ **PASSED** | 4 tests passing (token-by-token SSE streaming, typewriter fallback stream, interruption error handling, single complete message persistence). |
 | `TEST-AUTH-ADMIN-001` | Auth, Admin & Metadata Extension Endpoints | ✅ **PASSED** | 9 tests passing (`GET /me`, `POST /auth/login`, `GET /admin/stats`, `GET /admin/users`, `PATCH /admin/users/{id}/role`, `GET /documents/{id}/preview`, `PATCH /documents/{id}`). |
+| `TEST-ADMIN-001` | Complete Administrator Console & RBAC Enforcement | ✅ **PASSED** | 17 tests passing (upload, validation, metadata patch, cascading delete, preview, stats schema with status breakdowns, audit query/filter, strict 403 access control). |
 | `TEST-FE-001` | Next.js 14 Build & Static Generation | ✅ **PASSED** | 19/19 routes compiled & statically generated with 0 TypeScript/ESLint errors. |
 | `TEST-E2E-001` | Full End-to-End Frontend/Backend Workflow | ✅ **PASSED** | 9-step integration verification passed (Auth -> Upload -> Processing -> Preview -> Metadata Edit -> Conversation -> SSE Streaming Q&A -> Citations -> Admin Stats -> Cascading Deletion). |
 | `TEST-AUTH-001` | Keycloak JWT Authentication | ⏳ Pending | Scheduled for Phase 8 (`UKA-8`). |

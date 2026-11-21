@@ -216,6 +216,7 @@ Endpoints:
 | `DELETE` | `/conversations/{id}` | Owner-restricted conversation thread deletion | User (Owner) |
 | `POST` | `/conversations/{id}/messages` | Ask a question (supports SSE `?stream=true`), retrieve context, save turn + citations | User (Owner) |
 | `GET` | `/admin/stats` / `/api/v1/admin/stats` | System KPI analytics, document counts, query stats, audit log stream | Admin (`X-Dev-Role: admin`) |
+| `GET` | `/admin/audit-logs` / `/api/v1/admin/audit-logs` | Query and filter compliance audit log events by action or entity | Admin (`X-Dev-Role: admin`) |
 | `GET` | `/admin/users` / `/api/v1/admin/users` | List registered user directory | Admin (`X-Dev-Role: admin`) |
 | `PATCH` | `/admin/users/{id}/role` | Update user role with self-lockout safety guard | Admin (`X-Dev-Role: admin`) |
 
