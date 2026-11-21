@@ -11,12 +11,12 @@
 
 | Metric | Status | Details |
 |---|:---:|---|
-| **Current Phase** | **Phase 4 (Database Schema & Migrations)** | SQLAlchemy relational models, Alembic migrations, and schema definition (`UKA-18`). |
-| **Completed Phases** | **Phases 1, 2 & 3** | Planning & Requirements, Git + JIRA Setup, Backend Skeleton & Healthcheck (`UKA-16`, `UKA-17`). |
-| **Pending Phases** | **Phases 4–14** | Database migrations, ingestion, RAG core, chat UI, OAuth, replication sync, Docker, K8s, CI/CD, testing. |
+| **Current Phase** | **Phase 5 (Document Ingestion Pipeline)** | Multipart PDF upload, MinIO object storage, text extraction, and chunking (`UKA-19`–`UKA-22`). |
+| **Completed Phases** | **Phases 1, 2, 3 & 4** | Planning, Git/JIRA Setup, Backend Skeleton, PostgreSQL Schema & Alembic Migrations (`UKA-16`, `UKA-17`, `UKA-18`). |
+| **Pending Phases** | **Phases 5–14** | Ingestion, RAG core, chat UI, OAuth, replication sync, Docker, K8s, CI/CD, testing. |
 | **Blocked Items** | **None** | All integrations (GitHub MCP, JIRA TWG) verified and operational. |
-| **Active JIRA Board** | [`UKA`](https://nightbladeninja.atlassian.net/jira/software/projects/UKA/boards) | 14 Epics created; Phase 3 backend skeleton validated with 10 passing tests. |
-| **Latest Test Status** | **PASSED** | 10/10 backend unit tests passed (`TEST-UNIT-001`), live HTTP healthcheck and Swagger UI verified. |
+| **Active JIRA Board** | [`UKA`](https://nightbladeninja.atlassian.net/jira/software/projects/UKA/boards) | 14 Epics created; Phase 4 schema verified with 15 passing automated tests. |
+| **Latest Test Status** | **PASSED** | 15/15 backend & database tests passed (`TEST-UNIT-001`, `TEST-SCHEMA-001`), PostgreSQL 16 schema verified. |
 
 ---
 
@@ -27,8 +27,8 @@
 | **1** | **Planning & Requirements Baseline** | Foundation | ✅ **COMPLETED** | `UKA-1` | 2026-11-21 |
 | **2** | **Git & JIRA Setup, Repo Skeleton** | Foundation | ✅ **COMPLETED** | `UKA-1`, `UKA-16` | 2026-11-21 |
 | **3** | **Backend Skeleton (FastAPI)** | Tier 1 (MVP) | ✅ **COMPLETED** | `UKA-1`, `UKA-17` | 2026-11-21 |
-| **4** | **Database Schema & Migrations** | Tier 1 (MVP) | 🟡 **IN PROGRESS** | `UKA-1`, `UKA-18` | Sprint 1 |
-| **5** | **Document Ingestion Pipeline** | Tier 1 (MVP) | ⏳ PENDING | `UKA-3`, `UKA-19` to `UKA-22` | Sprint 1 |
+| **4** | **Database Schema & Migrations** | Tier 1 (MVP) | ✅ **COMPLETED** | `UKA-1`, `UKA-18` | 2026-11-21 |
+| **5** | **Document Ingestion Pipeline** | Tier 1 (MVP) | 🟡 **IN PROGRESS** | `UKA-3`, `UKA-19` to `UKA-22` | Sprint 1 |
 | **6** | **RAG Core Engine (Embeddings & Groq)** | Tier 1 (MVP) | ⏳ PENDING | `UKA-4`, `UKA-5`, `UKA-6` | Sprint 2 |
 | **7** | **Conversational Interface (Next.js)** | Tier 1 (MVP) | ⏳ PENDING | `UKA-7`, `UKA-8` | Sprint 2 |
 | **8** | **OAuth 2.0 / OIDC & RBAC (Keycloak)** | Tier 2 (Graded) | ⏳ PENDING | `UKA-8` | Sprint 3 |
@@ -68,8 +68,8 @@
 |---|---|---|:---:|:---:|
 | `UKA-16` | Repository Setup, Hygiene, and Environment Configuration | `UKA-1` | Must Have | ✅ **Done** |
 | `UKA-17` | FastAPI Backend Application Factory and Healthcheck Endpoint | `UKA-1` | Must Have | ✅ **Done** |
-| `UKA-18` | SQLAlchemy Relational Models and Alembic Async Migrations | `UKA-1` | Must Have | 🟡 **In Progress** |
-| `UKA-19` | Multipart Document Upload API and MinIO Storage | `UKA-3` | Must Have | To Do |
+| `UKA-18` | SQLAlchemy Relational Models and Alembic Async Migrations | `UKA-1` | Must Have | ✅ **Done** |
+| `UKA-19` | Multipart Document Upload API and MinIO Storage | `UKA-3` | Must Have | 🟡 **In Progress** |
 | `UKA-20` | PyMuPDF Text Extraction with Page Indexing and Header Detection | `UKA-3` | Must Have | To Do |
 | `UKA-21` | Recursive Character Text Chunking and Normalization | `UKA-3` | Must Have | To Do |
 | `UKA-22` | Document Listing and Cascading Deletion Saga | `UKA-3` | Must Have | To Do |
@@ -96,6 +96,7 @@
 | `TEST-HYGIENE-001` | `.gitignore` & Secrets Audit | ✅ **PASSED** | Secrets and virtual environments excluded from git. |
 | `TEST-JIRA-001` | JIRA Board & API Verification | ✅ **PASSED** | Project `UKA` online on `nightbladeninja.atlassian.net`. |
 | `TEST-UNIT-001` | Backend Unit Test Suite | ✅ **PASSED** | 10 unit tests passing (health, docs, schemas, custom errors). |
+| `TEST-SCHEMA-001` | PostgreSQL 16 Schema & Migrations | ✅ **PASSED** | 5 integration tests passing (tables, cascades, check constraints, live DB probe). |
 | `TEST-DOC-001` | Document Ingestion Integration | ⏳ Pending | Scheduled for Phase 5 (`UKA-19`). |
 | `TEST-RAG-001` | RAG Answer & Fallback Evaluation | ⏳ Pending | Scheduled for Phase 6 (`UKA-26`, `UKA-28`). |
 | `TEST-AUTH-001` | Keycloak JWT Authentication | ⏳ Pending | Scheduled for Phase 8 (`UKA-8`). |
