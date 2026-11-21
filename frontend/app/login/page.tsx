@@ -18,7 +18,7 @@ export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email || !email.includes("@")) {
       setError("Please provide a valid university email address.");
@@ -27,11 +27,14 @@ export default function LoginPage() {
     setError(null);
     setIsLoading(true);
 
-    setTimeout(() => {
-      login(email, selectedRole);
-      setIsLoading(false);
+    try {
+      await login(email, selectedRole);
       router.push("/dashboard");
-    }, 400);
+    } catch (err: any) {
+      setError(err.message || "Login failed. Please check credentials.");
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleOAuthLogin = () => {

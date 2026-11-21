@@ -12,6 +12,7 @@ Verifies:
 
 import io
 import uuid
+import fitz
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
@@ -190,14 +191,23 @@ async def test_resolve_from_chunk_ids_against_live_database(client: TestClient, 
 @pytest.mark.asyncio
 async def test_end_to_end_rag_citations_structure(client: TestClient, db_session):
     """Verifies that RAG answers return structured citation information with document, page, and section."""
-    pdf_bytes = generate_test_pdf(num_pages=2)
-    filename = "BTech_Curriculum_Guidelines.pdf"
+    unique_code = uuid.uuid4().hex[:8]
+    filename = f"Examination_Regulations_{unique_code}.pdf"
+    doc = fitz.open()
+    page = doc.new_page()
+    text = (
+        f"Section 1: Re-evaluation Policy {unique_code}\n\n"
+        f"Under regulation {unique_code}, examination re-evaluation requests must be submitted within 14 calendar days.\n"
+    )
+    page.insert_textbox(fitz.Rect(50, 50, 550, 780), text)
+    pdf_bytes = doc.tobytes()
+    doc.close()
 
     # 1. Upload & process
     upload_resp = client.post(
         "/api/v1/documents?auto_process=false",
         headers={"X-Dev-Role": "admin"},
-        data={"category": "Academic", "title": "BTech Curriculum Guidelines"},
+        data={"category": "Examination", "title": f"Examination Regulations {unique_code}"},
         files={"file": (filename, io.BytesIO(pdf_bytes), "application/pdf")},
     )
     assert upload_resp.status_code == 201
@@ -214,7 +224,7 @@ async def test_end_to_end_rag_citations_structure(client: TestClient, db_session
         "/api/v1/rag/query",
         headers={"X-Dev-Role": "student"},
         json={
-            "question": "What is the minimum CGPA and attendance requirement?",
+            "question": f"Within how many days must re-evaluation requests be submitted under {unique_code}?",
             "top_k": 3,
             "confidence_threshold": 0.20,
         },

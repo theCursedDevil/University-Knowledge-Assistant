@@ -80,8 +80,13 @@ class ConversationCreate(BaseModel):
 class MessageCreate(BaseModel):
     """Request schema for posting a new user message in a conversation."""
 
-    content: str = Field(..., min_length=1, max_length=4000, description="User question or follow-up prompt.")
+    content: Optional[str] = Field(default=None, max_length=4000, description="User question or follow-up prompt.")
+    message: Optional[str] = Field(default=None, max_length=4000, description="Alias for content.")
     stream: Optional[bool] = Field(default=False, description="Whether to stream response tokens via SSE.")
+
+    @property
+    def text(self) -> str:
+        return (self.content or self.message or "").strip()
 
 
 class ChatTurnResponse(BaseModel):
@@ -257,7 +262,9 @@ async def post_message(
 
     # 2. Save user message
     now = datetime.now(timezone.utc)
-    user_content = message_in.content.strip()
+    user_content = (message_in.content or message_in.message or "").strip()
+    if not user_content:
+        raise ValidationError(message="Message content cannot be empty.")
     user_message = Message(
         id=uuid.uuid4(),
         conversation_id=conversation.id,
@@ -414,3 +421,35 @@ async def post_message(
         status_code=status.HTTP_201_CREATED,
         content=response_payload.model_dump(mode="json"),
     )
+
+
+@router.delete(
+    "/{id}",
+    status_code=status.HTTP_200_OK,
+    summary="Delete Conversation",
+    description="Deletes a conversation thread and all its messages. Restricted to owner or admin.",
+)
+async def delete_conversation(
+    id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Deletes a conversation owned by the current user."""
+    stmt = select(Conversation).where(Conversation.id == id)
+    res = await db.execute(stmt)
+    conv = res.scalar_one_or_none()
+    if not conv:
+        raise NotFoundError(
+            message=f"Conversation with ID '{id}' not found.",
+            details={"conversation_id": str(id)},
+        )
+
+    if conv.user_id != current_user.id and current_user.role != "admin":
+        raise ForbiddenError(
+            message="You do not have permission to delete this conversation.",
+            details={"conversation_id": str(id), "user_id": str(current_user.id)},
+        )
+
+    await db.delete(conv)
+    await db.commit()
+    return {"message": "Conversation successfully deleted", "id": str(id)}

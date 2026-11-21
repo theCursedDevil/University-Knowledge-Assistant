@@ -37,9 +37,29 @@ from backend.app.db.models import User, Document, DocumentChunkMeta, AuditLog
 from backend.app.services.storage import storage_service
 from backend.app.rag.pipeline import process_document, ProcessingResult
 from backend.app.rag.vector_store import vector_store, SearchResult
+from backend.app.rag.extractor import extract_text_from_pdf, ExtractedPage
 
 settings = get_settings()
 router = APIRouter()
+
+
+class DocumentUpdateRequest(BaseModel):
+    """Schema for updating document title and category."""
+
+    title: Optional[str] = Field(default=None, min_length=2, max_length=255)
+    category: Optional[str] = Field(default=None, min_length=2, max_length=100)
+
+
+class DocumentPreviewResponse(BaseModel):
+    """Schema for document preview containing extracted pages."""
+
+    id: uuid.UUID
+    title: str
+    category: str
+    status: str
+    storage_path: str
+    page_count: int
+    pages: List[ExtractedPage]
 
 
 class DocumentResponse(BaseModel):
@@ -285,6 +305,121 @@ async def list_documents(
     result = await db.execute(query)
     docs = result.scalars().all()
     return list(docs)
+
+
+@router.get(
+    "/documents/{id}",
+    response_model=DocumentResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Get Document by ID",
+    description="Retrieves a single document's metadata by its unique identifier.",
+    tags=["Documents"],
+)
+async def get_document(
+    id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> DocumentResponse:
+    """Retrieves single document metadata."""
+    stmt = select(Document).where(Document.id == id)
+    res = await db.execute(stmt)
+    doc = res.scalar_one_or_none()
+    if not doc:
+        raise NotFoundError(
+            message=f"Document with ID '{id}' not found.",
+            details={"document_id": str(id)},
+        )
+    return DocumentResponse.model_validate(doc)
+
+
+@router.get(
+    "/documents/{id}/preview",
+    response_model=DocumentPreviewResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Preview Document Content",
+    description="Extracts page-by-page text from the stored MinIO PDF for preview.",
+    tags=["Documents"],
+)
+async def preview_document(
+    id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> DocumentPreviewResponse:
+    """Extracts and returns document text pages from MinIO object storage."""
+    stmt = select(Document).where(Document.id == id)
+    res = await db.execute(stmt)
+    doc = res.scalar_one_or_none()
+    if not doc:
+        raise NotFoundError(
+            message=f"Document with ID '{id}' not found.",
+            details={"document_id": str(id)},
+        )
+
+    pages = []
+    try:
+        pdf_bytes = storage_service.get_file(doc.storage_path)
+        pages = extract_text_from_pdf(pdf_bytes)
+    except Exception as exc:
+        logger.warning("Could not extract live PDF preview for doc %s: %s", id, exc)
+
+    return DocumentPreviewResponse(
+        id=doc.id,
+        title=doc.title,
+        category=doc.category,
+        status=doc.status,
+        storage_path=doc.storage_path,
+        page_count=len(pages),
+        pages=pages,
+    )
+
+
+@router.patch(
+    "/documents/{id}",
+    response_model=DocumentResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Edit Document Metadata",
+    description="Updates document title and category. Administrator role required.",
+    tags=["Documents"],
+)
+async def update_document(
+    id: uuid.UUID,
+    payload: DocumentUpdateRequest,
+    current_user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> DocumentResponse:
+    """Updates document metadata and logs an audit trail event."""
+    stmt = select(Document).where(Document.id == id)
+    res = await db.execute(stmt)
+    doc = res.scalar_one_or_none()
+    if not doc:
+        raise NotFoundError(
+            message=f"Document with ID '{id}' not found.",
+            details={"document_id": str(id)},
+        )
+
+    changes = {}
+    if payload.title and payload.title.strip():
+        changes["old_title"] = doc.title
+        doc.title = payload.title.strip()
+        changes["new_title"] = doc.title
+    if payload.category and payload.category.strip():
+        changes["old_category"] = doc.category
+        doc.category = payload.category.strip()
+        changes["new_category"] = doc.category
+
+    if changes:
+        audit = AuditLog(
+            user_id=current_user.id,
+            action="DOCUMENT_METADATA_UPDATE",
+            entity="documents",
+            entity_id=str(doc.id),
+            details=changes,
+        )
+        db.add(audit)
+        await db.commit()
+        await db.refresh(doc)
+
+    return DocumentResponse.model_validate(doc)
 
 
 @router.delete(

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import Link from "next/link";
 import {
   Send,
@@ -20,25 +20,46 @@ import {
   Bell,
   Clock,
   CheckCircle2,
-  Info,
+  AlertTriangle,
+  History,
 } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
+import { LoadingState } from "@/components/SystemStates";
 import {
-  ChatMessage,
-  CitationItem,
   SUGGESTED_QUESTION_CATEGORIES,
-  MOCK_INITIAL_MESSAGES,
-  MOCK_CITATIONS,
 } from "@/lib/mockData";
+import {
+  fetchConversations,
+  createConversation,
+  fetchConversationDetail,
+  streamChatMessage,
+  ApiConversationSummary,
+  ApiMessage,
+  ApiCitation,
+} from "@/lib/api";
+import { useAuth } from "@/context/AuthContext";
+import { formatDate } from "@/lib/utils";
 
 export default function ChatPage() {
-  const [messages, setMessages] = useState<ChatMessage[]>(MOCK_INITIAL_MESSAGES["conv-101"] || []);
+  const { role, currentUser } = useAuth();
+
+  // Conversations State
+  const [conversations, setConversations] = useState<ApiConversationSummary[]>([]);
+  const [activeConvId, setActiveConvId] = useState<string | null>(null);
+  const [messages, setMessages] = useState<ApiMessage[]>([]);
+  const [isLoadingHistory, setIsLoadingHistory] = useState<boolean>(true);
+
+  // Input & Streaming State
   const [inputValue, setInputValue] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
-  const [streamedText, setStreamedText] = useState("");
+  const [streamingText, setStreamingText] = useState("");
+  const [streamingCitations, setStreamingCitations] = useState<ApiCitation[]>([]);
+  const [streamError, setStreamError] = useState<string | null>(null);
+
+  // UI Panels
   const [showSuggestions, setShowSuggestions] = useState(true);
   const [activeCategory, setActiveCategory] = useState("cat-exams");
-  const [selectedCitation, setSelectedCitation] = useState<CitationItem | null>(null);
+  const [selectedCitation, setSelectedCitation] = useState<ApiCitation | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -48,350 +69,461 @@ export default function ChatPage() {
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages, streamedText]);
+  }, [messages, streamingText]);
 
-  const handleSendMessage = (textToSend?: string) => {
+  // Load user's conversations on mount or user switch
+  const loadConversations = useCallback(async () => {
+    setIsLoadingHistory(true);
+    try {
+      const convList = await fetchConversations();
+      setConversations(convList);
+      if (convList.length > 0) {
+        setActiveConvId(convList[0].id);
+      } else {
+        // Create initial conversation if empty
+        const initialConv = await createConversation("New Conversation");
+        setConversations([initialConv]);
+        setActiveConvId(initialConv.id);
+      }
+    } catch {
+      // Offline fallback
+      setConversations([]);
+    } finally {
+      setIsLoadingHistory(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadConversations();
+  }, [loadConversations, currentUser.id]);
+
+  // Load active conversation messages
+  const loadActiveMessages = useCallback(async (convId: string) => {
+    try {
+      const detail = await fetchConversationDetail(convId);
+      setMessages(detail.messages || []);
+      setShowSuggestions(detail.messages.length === 0);
+    } catch {
+      setMessages([]);
+      setShowSuggestions(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeConvId) {
+      loadActiveMessages(activeConvId);
+    }
+  }, [activeConvId, loadActiveMessages]);
+
+  // Start a fresh conversation thread
+  const handleNewConversation = async () => {
+    try {
+      const newConv = await createConversation("New Conversation");
+      setConversations((prev) => [newConv, ...prev]);
+      setActiveConvId(newConv.id);
+      setMessages([]);
+      setShowSuggestions(true);
+      setStreamError(null);
+    } catch (err: any) {
+      setStreamError(err.message || "Failed to create new conversation.");
+    }
+  };
+
+  // Submit Question & Consume Server-Sent Events (SSE) Stream
+  const handleSendMessage = async (textToSend?: string) => {
     const question = (textToSend || inputValue).trim();
     if (!question || isStreaming) return;
 
     setInputValue("");
     setShowSuggestions(false);
+    setStreamError(null);
 
-    // 1. Append user message
-    const userMsg: ChatMessage = {
-      id: `msg-${Date.now()}`,
+    let convId = activeConvId;
+    if (!convId) {
+      try {
+        const newConv = await createConversation("New Conversation");
+        setConversations((prev) => [newConv, ...prev]);
+        convId = newConv.id;
+        setActiveConvId(newConv.id);
+      } catch (err: any) {
+        setStreamError("Failed to initiate conversation thread.");
+        return;
+      }
+    }
+
+    // Optimistically append user message
+    const optimisticUserMsg: ApiMessage = {
+      id: `usr-${Date.now()}`,
+      conversation_id: convId,
       role: "user",
       content: question,
-      createdAt: new Date().toISOString(),
+      created_at: new Date().toISOString(),
     };
-    setMessages((prev) => [...prev, userMsg]);
+    setMessages((prev) => [...prev, optimisticUserMsg]);
+
     setIsStreaming(true);
-    setStreamedText("");
+    setStreamingText("");
+    setStreamingCitations([]);
 
-    // Simulate RAG generation with token streaming
-    setTimeout(() => {
-      let answerText = "";
-      let matchedCitations: CitationItem[] = [];
+    await streamChatMessage({
+      conversationId: convId,
+      message: question,
+      onToken: (token: string) => {
+        setStreamingText((prev) => prev + token);
+      },
+      onCitations: (citations: ApiCitation[]) => {
+        setStreamingCitations(citations);
+      },
+      onComplete: ({ answer, citations, messageId }) => {
+        const assistantMsg: ApiMessage = {
+          id: messageId || `asst-${Date.now()}`,
+          conversation_id: convId!,
+          role: "assistant",
+          content: answer,
+          citations_json: citations,
+          created_at: new Date().toISOString(),
+        };
+        setMessages((prev) => [...prev, assistantMsg]);
+        setIsStreaming(false);
+        setStreamingText("");
+        setStreamingCitations([]);
 
-      if (question.toLowerCase().includes("cgpa") || question.toLowerCase().includes("passing")) {
-        answerText =
-          "According to Section 7.1 of the University Academic Regulations [Source 1], undergraduate students must maintain a minimum Cumulative Grade Point Average (CGPA) of 6.0 on a 10.0 scale with no active backlogs to be awarded a Bachelor of Technology degree.";
-        matchedCitations = [MOCK_CITATIONS[1]];
-      } else if (question.toLowerCase().includes("attendance") || question.toLowerCase().includes("medical")) {
-        answerText =
-          "In accordance with Section 4.2 of the Academic Regulations [Source 1], all students are strictly required to maintain a minimum of 75% physical attendance across all registered courses. Shortages between 65% and 74% may be condoned solely on valid medical grounds.";
-        matchedCitations = [MOCK_CITATIONS[0]];
-      } else if (question.toLowerCase().includes("hostel") || question.toLowerCase().includes("curfew") || question.toLowerCase().includes("night")) {
-        answerText =
-          "As detailed in the Hostel Conduct Rules [Source 1], campus gate entry for hostel residents closes at 21:30 hrs. Night-out passes must be submitted digitally via the student portal with prior verified guardian consent.";
-        matchedCitations = [MOCK_CITATIONS[3]];
-      } else if (question.toLowerCase().includes("re-eval") || question.toLowerCase().includes("backlog")) {
-        answerText =
-          "Per the Examination Ordinance [Source 1], students may submit an application for answer book re-evaluation within 14 calendar days from result notification along with a fee of Rs. 500 per theoretical paper.";
-        matchedCitations = [MOCK_CITATIONS[2]];
-      } else {
-        answerText =
-          "Based on the available university documents [Source 1], the policy details provisions applicable to all registered students under regular academic session guidelines.";
-        matchedCitations = [MOCK_CITATIONS[0]];
-      }
-
-      // Stream tokens with typewriter effect
-      const words = answerText.split(" ");
-      let currentIdx = 0;
-
-      const interval = setInterval(() => {
-        if (currentIdx < words.length) {
-          const chunk = words[currentIdx] + " ";
-          setStreamedText((prev) => prev + chunk);
-          currentIdx++;
-        } else {
-          clearInterval(interval);
-          setIsStreaming(false);
-          const assistantMsg: ChatMessage = {
-            id: `msg-${Date.now() + 1}`,
-            role: "assistant",
-            content: answerText,
-            createdAt: new Date().toISOString(),
-            citations: matchedCitations,
-          };
-          setMessages((prev) => [...prev, assistantMsg]);
-          setStreamedText("");
-        }
-      }, 35);
-    }, 400);
-  };
-
-  const handleNewChat = () => {
-    setMessages([]);
-    setShowSuggestions(true);
-    setSelectedCitation(null);
-  };
-
-  const categoryIcons: Record<string, React.ReactNode> = {
-    "cat-exams": <BookOpen className="w-3.5 h-3.5" />,
-    "cat-attendance": <Clock className="w-3.5 h-3.5" />,
-    "cat-calendar": <Calendar className="w-3.5 h-3.5" />,
-    "cat-hostel": <Building2 className="w-3.5 h-3.5" />,
-    "cat-placement": <Briefcase className="w-3.5 h-3.5" />,
-    "cat-notices": <Bell className="w-3.5 h-3.5" />,
+        // Refresh conversation listing to update titles/timestamps
+        fetchConversations().then(setConversations).catch(() => {});
+      },
+      onError: (err: Error) => {
+        setIsStreaming(false);
+        setStreamError(err.message || "Failed to receive response from knowledge engine.");
+      },
+    });
   };
 
   return (
     <AppShell>
       <div className="flex h-[calc(100vh-3.5rem)] overflow-hidden">
-        {/* Main Chat Flow Area (W-04) */}
-        <div className="flex-1 flex flex-col h-full bg-white dark:bg-zinc-950 relative">
-          {/* Chat Header Bar */}
-          <div className="h-12 border-b border-zinc-200 dark:border-zinc-800 px-6 flex items-center justify-between shrink-0 bg-white/80 dark:bg-zinc-950/80 backdrop-blur-xs">
-            <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-emerald-500" />
-              <span className="text-xs font-semibold text-zinc-800 dark:text-zinc-200">
-                Grounded Assistant (LLaMA 3.1 8B Instant)
-              </span>
-              <span className="text-[10px] text-zinc-400 font-mono">low-temp 0.1</span>
+        {/* Main Chat Flow Area */}
+        <div className="flex-1 flex flex-col min-w-0 bg-white dark:bg-zinc-950">
+          {/* Conversation Header & Switcher */}
+          <div className="p-3.5 px-6 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between gap-4 shrink-0 bg-zinc-50/50 dark:bg-zinc-900/50">
+            <div className="flex items-center gap-2 overflow-hidden">
+              <Sparkles className="w-4 h-4 text-accent shrink-0" />
+              <div className="truncate">
+                <span className="font-semibold text-xs text-zinc-900 dark:text-zinc-100 truncate block">
+                  {conversations.find((c) => c.id === activeConvId)?.title || "University Knowledge Assistant"}
+                </span>
+                <span className="text-[11px] text-zinc-400 block truncate">
+                  Grounded in official notices, regulations, and handbooks via Qdrant & Groq
+                </span>
+              </div>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 shrink-0">
+              {conversations.length > 1 && (
+                <div className="flex items-center gap-1.5 px-2 py-1 rounded-md border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-xs">
+                  <History className="w-3.5 h-3.5 text-zinc-400" />
+                  <select
+                    value={activeConvId || ""}
+                    onChange={(e) => setActiveConvId(e.target.value)}
+                    className="bg-transparent text-xs text-zinc-700 dark:text-zinc-300 focus:outline-hidden cursor-pointer max-w-[140px] truncate"
+                  >
+                    {conversations.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.title}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
               <button
-                onClick={() => setShowSuggestions(!showSuggestions)}
-                className="text-xs text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 font-medium px-2 py-1 rounded border border-zinc-200 dark:border-zinc-800 cursor-pointer"
-              >
-                {showSuggestions ? "Hide Suggestions" : "Show Suggestions (W-16)"}
-              </button>
-              <button
-                onClick={handleNewChat}
-                className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-200 transition cursor-pointer"
+                onClick={handleNewConversation}
+                className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-md bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 hover:bg-zinc-800 transition cursor-pointer"
               >
                 <Plus className="w-3.5 h-3.5" />
-                New Thread
+                <span>New</span>
               </button>
             </div>
           </div>
 
-          {/* Messages Scroll Area */}
+          {/* Messages Stream Container */}
           <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-5">
-            {messages.length === 0 && (
-              <div className="max-w-2xl mx-auto my-8 text-center space-y-2">
-                <div className="w-10 h-10 rounded-xl bg-zinc-100 dark:bg-zinc-900 flex items-center justify-center text-accent mx-auto mb-3 shadow-xs">
-                  <Sparkles className="w-5 h-5" />
+            {isLoadingHistory ? (
+              <LoadingState message="Loading conversation history..." />
+            ) : messages.length === 0 && !isStreaming ? (
+              /* W-16 Suggested Questions Section (Empty Thread State) */
+              <div className="max-w-2xl mx-auto py-6 space-y-6">
+                <div className="text-center space-y-2">
+                  <div className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-accent/10 text-accent mb-1">
+                    <Sparkles className="w-5 h-5" />
+                  </div>
+                  <h2 className="text-base font-bold text-zinc-900 dark:text-zinc-100 tracking-tight">
+                    How can I assist your university queries today?
+                  </h2>
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400 max-w-md mx-auto">
+                    Ask natural-language questions about curriculum, exams, fee payments, hostel curfews, or placement criteria.
+                  </p>
                 </div>
-                <h2 className="text-lg font-bold text-zinc-900 dark:text-zinc-100">
-                  How can I help you today?
-                </h2>
-                <p className="text-xs text-zinc-500 dark:text-zinc-400 max-w-md mx-auto">
-                  Ask questions about academic policies, hostel timings, attendance condonation, exams, and degree ordinances.
-                </p>
+
+                {showSuggestions && (
+                  <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/50 p-4 space-y-3">
+                    <div className="flex items-center justify-between pb-2 border-b border-zinc-200 dark:border-zinc-800">
+                      <span className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                        Suggested Topic Explorations
+                      </span>
+                      <button
+                        onClick={() => setShowSuggestions(false)}
+                        className="text-[11px] text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 cursor-pointer"
+                      >
+                        Hide
+                      </button>
+                    </div>
+
+                    {/* Category Tabs */}
+                    <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+                      {SUGGESTED_QUESTION_CATEGORIES.map((cat) => (
+                        <button
+                          key={cat.id}
+                          onClick={() => setActiveCategory(cat.id)}
+                          className={`px-2.5 py-1 rounded-md text-xs font-medium whitespace-nowrap transition cursor-pointer ${
+                            activeCategory === cat.id
+                              ? "bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 font-semibold"
+                              : "bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-100"
+                          }`}
+                        >
+                          {cat.name}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Category Questions Grid */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                      {SUGGESTED_QUESTION_CATEGORIES.find((c) => c.id === activeCategory)?.questions.map((q, idx) => (
+                        <button
+                          key={idx}
+                          onClick={() => handleSendMessage(q)}
+                          className="text-left p-2.5 rounded-lg bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 hover:border-accent hover:bg-accent/5 transition text-xs text-zinc-700 dark:text-zinc-300 shadow-2xs group cursor-pointer"
+                        >
+                          <span className="group-hover:text-accent font-medium leading-relaxed block">{q}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
-            )}
+            ) : null}
 
-            {/* W-16 Suggested Questions Section */}
-            {showSuggestions && (
-              <div className="max-w-3xl mx-auto my-4 p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/70 dark:bg-zinc-900/40">
-                <div className="flex items-center justify-between mb-3">
-                  <span className="text-xs font-semibold text-zinc-800 dark:text-zinc-200 flex items-center gap-1.5">
-                    <Sparkles className="w-3.5 h-3.5 text-accent" />
-                    Suggested Questions (W-16)
-                  </span>
-                  <button
-                    onClick={() => setShowSuggestions(false)}
-                    className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 text-xs cursor-pointer"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                </div>
+            {/* Conversation Turns */}
+            {messages.map((msg) => {
+              const isUser = msg.role === "user";
+              const citations: ApiCitation[] = msg.citations_json || [];
 
-                {/* Category Pills */}
-                <div className="flex flex-wrap gap-1.5 mb-3">
-                  {SUGGESTED_QUESTION_CATEGORIES.map((cat) => (
-                    <button
-                      key={cat.id}
-                      onClick={() => setActiveCategory(cat.id)}
-                      className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-medium transition cursor-pointer ${
-                        activeCategory === cat.id
-                          ? "bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900"
-                          : "bg-white dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-700"
+              return (
+                <div
+                  key={msg.id}
+                  className={`flex gap-3 max-w-3xl ${isUser ? "ml-auto justify-end" : "mr-auto justify-start"}`}
+                >
+                  {!isUser && (
+                    <div className="w-7 h-7 rounded-md bg-accent/10 border border-accent/20 flex items-center justify-center shrink-0 mt-0.5">
+                      <Sparkles className="w-3.5 h-3.5 text-accent" />
+                    </div>
+                  )}
+
+                  <div className={`space-y-2 max-w-[85%] ${isUser ? "text-right" : "text-left"}`}>
+                    <div
+                      className={`inline-block p-3.5 rounded-xl text-xs leading-relaxed text-left ${
+                        isUser
+                          ? "bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 rounded-tr-xs"
+                          : "bg-zinc-100/80 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-800 dark:text-zinc-200 rounded-tl-xs shadow-2xs"
                       }`}
                     >
-                      {categoryIcons[cat.id]}
-                      {cat.name}
-                    </button>
-                  ))}
-                </div>
+                      <p className="whitespace-pre-wrap">{msg.content}</p>
+                    </div>
 
-                {/* Clickable Suggested Questions */}
-                <div className="grid grid-cols-1 gap-2">
-                  {SUGGESTED_QUESTION_CATEGORIES.find((c) => c.id === activeCategory)?.questions.map(
-                    (q, idx) => (
-                      <button
-                        key={idx}
-                        onClick={() => handleSendMessage(q)}
-                        className="text-left text-xs p-2.5 rounded-lg bg-white dark:bg-zinc-800/80 border border-zinc-200 dark:border-zinc-700/80 hover:border-accent dark:hover:border-accent text-zinc-700 dark:text-zinc-300 transition flex items-center justify-between group cursor-pointer"
-                      >
-                        <span>{q}</span>
-                        <Send className="w-3 h-3 text-zinc-400 group-hover:text-accent group-hover:translate-x-0.5 transition shrink-0 ml-2" />
-                      </button>
-                    )
+                    {/* Verified Citations Panel Trigger (W-05) */}
+                    {!isUser && citations.length > 0 && (
+                      <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                        <span className="text-[11px] font-semibold text-zinc-400 inline-flex items-center gap-1">
+                          <Quote className="w-3 h-3 text-accent" />
+                          Verified Sources:
+                        </span>
+                        {citations.map((c, i) => (
+                          <button
+                            key={i}
+                            onClick={() => setSelectedCitation(c)}
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-zinc-200/60 dark:bg-zinc-800 hover:bg-accent/15 hover:text-accent border border-zinc-300/50 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300 transition cursor-pointer"
+                          >
+                            <FileText className="w-3 h-3 text-zinc-400" />
+                            <span>{c.document}</span>
+                            {c.page && <span className="text-zinc-400 font-mono">p.{c.page}</span>}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+
+                    <div className="text-[10px] text-zinc-400 font-mono px-1">
+                      {formatDate(msg.created_at)}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+
+            {/* Live SSE Streaming Bubble */}
+            {isStreaming && (
+              <div className="flex gap-3 max-w-3xl mr-auto justify-start animate-in fade-in duration-150">
+                <div className="w-7 h-7 rounded-md bg-accent/10 border border-accent/20 flex items-center justify-center shrink-0 mt-0.5">
+                  <Sparkles className="w-3.5 h-3.5 text-accent animate-pulse" />
+                </div>
+                <div className="space-y-2 max-w-[85%] text-left">
+                  <div className="inline-block p-3.5 rounded-xl text-xs leading-relaxed bg-zinc-100/80 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-800 dark:text-zinc-200 rounded-tl-xs shadow-2xs">
+                    <p className="whitespace-pre-wrap">{streamingText || "Retrieving relevant documents..."}</p>
+                    <span className="inline-block w-1.5 h-3.5 ml-1 bg-accent animate-pulse align-middle" />
+                  </div>
+
+                  {streamingCitations.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                      <span className="text-[11px] font-semibold text-zinc-400 inline-flex items-center gap-1">
+                        <Quote className="w-3 h-3 text-accent" />
+                        Resolving Sources:
+                      </span>
+                      {streamingCitations.map((c, i) => (
+                        <span
+                          key={i}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-zinc-200/60 dark:bg-zinc-800 border border-zinc-300/50 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300"
+                        >
+                          <FileText className="w-3 h-3 text-zinc-400" />
+                          <span>{c.document}</span>
+                          {c.page && <span className="text-zinc-400 font-mono">p.{c.page}</span>}
+                        </span>
+                      ))}
+                    </div>
                   )}
                 </div>
               </div>
             )}
 
-            {/* Conversation Messages */}
-            {messages.map((msg) => (
-              <div
-                key={msg.id}
-                className={`flex flex-col ${msg.role === "user" ? "items-end" : "items-start"}`}
-              >
-                <div className="text-[10px] text-zinc-400 mb-1 px-1">
-                  {msg.role === "user" ? "You" : "Knowledge Assistant"}
-                </div>
-                <div
-                  className={`max-w-2xl rounded-xl px-4 py-3 text-xs leading-relaxed ${
-                    msg.role === "user"
-                      ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
-                      : "bg-zinc-100 dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 border border-zinc-200 dark:border-zinc-800 shadow-2xs whitespace-pre-line"
-                  }`}
-                >
-                  {msg.content}
-                </div>
-
-                {/* W-05 Citations Badges */}
-                {msg.citations && msg.citations.length > 0 && (
-                  <div className="flex flex-wrap items-center gap-1.5 mt-2 pl-1">
-                    <span className="text-[10px] font-semibold text-zinc-400 flex items-center gap-1">
-                      <Quote className="w-3 h-3 text-accent" /> Sources:
-                    </span>
-                    {msg.citations.map((cit, cIdx) => (
-                      <button
-                        key={cit.id || cIdx}
-                        onClick={() => setSelectedCitation(cit)}
-                        className={`text-[11px] px-2.5 py-1 rounded-md border font-medium transition flex items-center gap-1.5 cursor-pointer ${
-                          selectedCitation?.id === cit.id
-                            ? "bg-accent text-white border-accent shadow-xs"
-                            : "bg-white dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-800 hover:border-accent"
-                        }`}
-                      >
-                        <FileText className="w-3 h-3" />
-                        <span>
-                          {cit.document} · Page {cit.page}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ))}
-
-            {/* Streaming Message Indicator */}
-            {isStreaming && (
-              <div className="flex flex-col items-start">
-                <div className="text-[10px] text-zinc-400 mb-1 px-1">
-                  Knowledge Assistant (Streaming SSE...)
-                </div>
-                <div className="max-w-2xl rounded-xl px-4 py-3 text-xs leading-relaxed bg-zinc-100 dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 border border-zinc-200 dark:border-zinc-800 shadow-2xs whitespace-pre-line">
-                  {streamedText}
-                  <span className="inline-block w-1.5 h-3 ml-0.5 bg-accent animate-pulse" />
-                </div>
+            {/* Error Notification */}
+            {streamError && (
+              <div className="p-3 rounded-lg bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 text-xs text-red-700 dark:text-red-400 flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 shrink-0" />
+                <span>{streamError}</span>
               </div>
             )}
 
             <div ref={messagesEndRef} />
           </div>
 
-          {/* Prompt Input Box */}
-          <div className="p-4 border-t border-zinc-200 dark:border-zinc-800 bg-white/95 dark:bg-zinc-950/95">
+          {/* Bottom Chat Input Form */}
+          <div className="p-4 border-t border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 shrink-0">
             <form
               onSubmit={(e) => {
                 e.preventDefault();
                 handleSendMessage();
               }}
-              className="max-w-3xl mx-auto flex items-center gap-2"
+              className="max-w-3xl mx-auto relative flex items-center"
             >
               <input
                 type="text"
+                placeholder="Ask a question about university notices, regulations, or handbooks..."
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
-                placeholder="Ask about grading formulas, attendance policies, re-evaluation, hostel rules..."
-                className="flex-1 py-2.5 px-4 text-xs rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 focus:outline-hidden focus:ring-1 focus:ring-accent focus:border-accent"
                 disabled={isStreaming}
+                className="w-full pl-4 pr-12 py-3 rounded-lg bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-xs text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-hidden focus:border-accent disabled:opacity-50 transition shadow-2xs"
               />
               <button
                 type="submit"
                 disabled={!inputValue.trim() || isStreaming}
-                className="p-2.5 rounded-lg bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 hover:bg-zinc-800 dark:hover:bg-zinc-200 transition disabled:opacity-40 cursor-pointer"
-                aria-label="Send Message"
+                className="absolute right-2 p-2 rounded-md bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 hover:bg-zinc-800 disabled:opacity-40 transition cursor-pointer"
               >
-                {isStreaming ? (
-                  <RefreshCw className="w-4 h-4 animate-spin text-accent" />
-                ) : (
-                  <Send className="w-4 h-4" />
-                )}
+                <Send className="w-3.5 h-3.5" />
               </button>
             </form>
-            <p className="text-[10px] text-zinc-400 text-center mt-2">
-              Responses are grounded strictly in uploaded institutional circulars and ordinances with exact citations.
-            </p>
+            <div className="max-w-3xl mx-auto mt-2 flex items-center justify-between text-[11px] text-zinc-400 px-1">
+              <span>Answers are strictly grounded in university documents with zero hallucination.</span>
+              <button
+                type="button"
+                onClick={() => setShowSuggestions((prev) => !prev)}
+                className="hover:text-zinc-600 dark:hover:text-zinc-200 underline cursor-pointer"
+              >
+                {showSuggestions ? "Hide suggestions" : "Show suggestions"}
+              </button>
+            </div>
           </div>
         </div>
 
-        {/* W-05 AI Answer + Citation Panel (Slide-Over / Inspector) */}
+        {/* W-05 Citation Inspector Slide-over Drawer */}
         {selectedCitation && (
-          <aside className="w-80 sm:w-96 border-l border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/60 flex flex-col h-full shrink-0 animate-in slide-in-from-right duration-200">
-            <div className="h-12 border-b border-zinc-200 dark:border-zinc-800 px-4 flex items-center justify-between">
-              <span className="text-xs font-semibold text-zinc-900 dark:text-zinc-100 flex items-center gap-1.5">
-                <Quote className="w-3.5 h-3.5 text-accent" />
-                Citation Inspector (W-05)
-              </span>
+          <div className="w-80 md:w-96 border-l border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 flex flex-col justify-between shrink-0 shadow-lg animate-in slide-in-from-right duration-200 z-30">
+            <div className="p-4 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Quote className="w-4 h-4 text-accent" />
+                <h3 className="text-xs font-bold text-zinc-900 dark:text-zinc-100">Citation Provenance</h3>
+              </div>
               <button
                 onClick={() => setSelectedCitation(null)}
-                className="p-1 rounded text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
+                className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-4 space-y-4">
-              {/* Document Meta Card */}
-              <div className="p-3.5 rounded-lg bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-2xs space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-[10px] font-semibold uppercase tracking-wider text-accent">
-                    Verified Source
-                  </span>
-                  <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 font-semibold">
-                    Score: {Math.round(selectedCitation.relevanceScore * 100)}%
-                  </span>
+            <div className="p-4 flex-1 overflow-y-auto space-y-4 text-xs">
+              <div className="p-3 rounded-lg bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 space-y-2">
+                <div className="flex items-center gap-1.5 text-zinc-500 font-semibold uppercase text-[10px]">
+                  <FileText className="w-3 h-3 text-accent" />
+                  Source Document
                 </div>
-                <h4 className="text-xs font-semibold text-zinc-900 dark:text-zinc-100">
+                <div className="font-bold text-zinc-900 dark:text-zinc-100 text-sm">
                   {selectedCitation.document}
-                </h4>
-                <div className="flex items-center gap-3 text-[11px] text-zinc-500 dark:text-zinc-400">
-                  <span>Page {selectedCitation.page}</span>
-                  {selectedCitation.section && <span>• {selectedCitation.section}</span>}
                 </div>
               </div>
 
-              {/* Verified Text Chunk Snippet */}
-              <div className="space-y-1.5">
-                <label className="text-[11px] font-semibold text-zinc-600 dark:text-zinc-400 uppercase tracking-wider">
-                  Extracted Excerpt
-                </label>
-                <div className="p-3 rounded-lg bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-xs text-zinc-700 dark:text-zinc-300 leading-relaxed italic">
-                  &ldquo;{selectedCitation.snippet}&rdquo;
+              <div className="grid grid-cols-2 gap-2">
+                <div className="p-2.5 rounded-lg bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800">
+                  <span className="text-[10px] text-zinc-400 block uppercase font-semibold">Page Number</span>
+                  <span className="font-mono text-xs text-zinc-800 dark:text-zinc-200 font-bold">
+                    {selectedCitation.page ? `Page ${selectedCitation.page}` : "General"}
+                  </span>
+                </div>
+                <div className="p-2.5 rounded-lg bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800">
+                  <span className="text-[10px] text-zinc-400 block uppercase font-semibold">Section</span>
+                  <span className="text-xs text-zinc-800 dark:text-zinc-200 font-medium truncate block">
+                    {selectedCitation.section || "Body"}
+                  </span>
                 </div>
               </div>
 
-              {/* Actions */}
-              <div className="pt-2">
+              <div className="p-3 rounded-lg bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 text-[11px] text-emerald-800 dark:text-emerald-300 space-y-1">
+                <div className="flex items-center gap-1.5 font-semibold">
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  Deterministic Grounding
+                </div>
+                <p>
+                  This citation was resolved directly from vector chunk coordinates stored in PostgreSQL and retrieved from Qdrant.
+                </p>
+              </div>
+
+              <div className="p-3 rounded-lg bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 space-y-2">
+                <span className="text-[10px] text-zinc-400 block uppercase font-semibold">Actions</span>
                 <Link
                   href="/documents"
-                  className="w-full py-2 px-3 rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-700 text-xs font-medium text-zinc-800 dark:text-zinc-200 transition flex items-center justify-center gap-1.5"
+                  className="inline-flex items-center gap-1.5 text-xs text-accent hover:underline font-medium"
                 >
-                  <ExternalLink className="w-3.5 h-3.5" />
-                  Open in Document Preview (W-08)
+                  <ExternalLink className="w-3 h-3" />
+                  Open Document in Catalog (W-07)
                 </Link>
               </div>
             </div>
-          </aside>
+
+            <div className="p-3 border-t border-zinc-200 dark:border-zinc-800 text-center">
+              <button
+                onClick={() => setSelectedCitation(null)}
+                className="w-full py-1.5 rounded-md border border-zinc-300 dark:border-zinc-700 text-xs font-medium hover:bg-zinc-100 dark:hover:bg-zinc-800 transition cursor-pointer"
+              >
+                Close Inspector
+              </button>
+            </div>
+          </div>
         )}
       </div>
     </AppShell>

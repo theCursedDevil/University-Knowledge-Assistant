@@ -11,12 +11,12 @@
 
 | Metric | Status | Details |
 |---|:---:|---|
-| **Current Phase** | **Phase 7 (Conversational Interface & Full Frontend Design)** | Completed: Next.js 14 application layout (`UKA-31`), 18 complete screens (W-01 to W-18), 5 system states (S-1 to S-5), SSE token streaming chat interface (`UKA-32`), conversation history (`UKA-33`), citation inspector (`UKA-30`), and admin console (`UKA-9`, `UKA-34`). |
-| **Completed Phases** | **Phases 1, 2, 3, 4, 5, 6 & 7** | Planning, Git/JIRA Setup, Backend Skeleton, PostgreSQL Schema, Document Pipeline, Core RAG, Citations, and Conversational Frontend (`UKA-16` through `UKA-34`). |
+| **Current Phase** | **Phase 7 (Conversational Interface & Full Frontend-Backend Integration)** | Completed: Next.js 14 application layout (`UKA-31`), 18 complete screens (W-01 to W-18), 5 system states (S-1 to S-5), SSE token streaming chat interface (`UKA-32`), conversation history (`UKA-33`), citation inspector (`UKA-30`), admin console (`UKA-9`, `UKA-34`), and full end-to-end FastAPI integration across 16 core endpoints (`UKA-35`). |
+| **Completed Phases** | **Phases 1, 2, 3, 4, 5, 6 & 7** | Planning, Git/JIRA Setup, Backend Skeleton, PostgreSQL Schema, Document Pipeline, Core RAG, Citations, Conversational Frontend, and Full End-to-End Integration (`UKA-16` through `UKA-35`). |
 | **Pending Phases** | **Phases 8–14** | Keycloak OAuth 2.0 integration, database replication sync & locking, Docker Compose 9-service stack, K8s manifests, CI/CD pipeline, and demo scripts. |
-| **Blocked Items** | **None** | All integrations (GitHub MCP, JIRA TWG, MinIO, PostgreSQL, Qdrant, Groq LLM, Next.js 14) verified and operational. |
-| **Active JIRA Board** | [`UKA`](https://nightbladeninja.atlassian.net/jira/software/projects/UKA/boards) | 14 Epics created; 18 frontend screens built; 62 backend tests + 19 frontend routes verified. |
-| **Latest Test Status** | **PASSED** | 62/62 backend tests passing + Next.js production build (`19/19` static/dynamic routes) passing. |
+| **Blocked Items** | **None** | All integrations (GitHub MCP, JIRA TWG, MinIO, PostgreSQL, Qdrant, Groq LLM, Next.js 14, SSE Streaming) verified and operational. |
+| **Active JIRA Board** | [`UKA`](https://nightbladeninja.atlassian.net/jira/software/projects/UKA/boards) | 14 Epics created; 18 frontend screens connected; 71 backend tests + 19 frontend routes verified. |
+| **Latest Test Status** | **PASSED** | 71/71 backend tests passing + Next.js production build (`19/19` static/dynamic routes) passing + 9/9 end-to-end integration workflows verified. |
 
 ---
 
@@ -85,7 +85,7 @@
 | `UKA-32` | Chat Interface with Token-by-Token SSE Stream Consumption | `UKA-7` | Must Have | ✅ **Done** |
 | `UKA-33` | Multi-Turn Conversation History and Sidebar Management | `UKA-7` | Must Have | ✅ **Done** |
 | `UKA-34` | UI System States Implementation (Loading, Empty, Error, Forbidden) | `UKA-7` | Should Have | ✅ **Done** |
-| `UKA-35` | Additional Screens (Sign Up, Forgot Password, Questions, Prefs, User Mgmt) | `UKA-7` | Should Have | ✅ **Done** |
+| `UKA-35` | Connect Next.js Frontend to FastAPI Backend Endpoints | `UKA-7` | Must Have | ✅ **Done** |
 
 ---
 
@@ -105,7 +105,9 @@
 | `TEST-CIT-001` | Deterministic Citation Resolver & Mapping | ✅ **PASSED** | 6 tests passing (chunk-to-PostgreSQL mapping, filename/page extraction, section inclusion, deduplication, omission of incomplete metadata). |
 | `TEST-CHAT-001` | Conversation Lifecycle & History Lookback | ✅ **PASSED** | 9 tests passing (POST/GET conversations, owner isolation, 403 forbidden, message posting, RAG integration, citation persistence, last 6 message history context, DB persistence). |
 | `TEST-STREAM-001` | SSE Token Streaming & Message Buffering | ✅ **PASSED** | 4 tests passing (token-by-token SSE streaming, typewriter fallback stream, interruption error handling, single complete message persistence). |
+| `TEST-AUTH-ADMIN-001` | Auth, Admin & Metadata Extension Endpoints | ✅ **PASSED** | 9 tests passing (`GET /me`, `POST /auth/login`, `GET /admin/stats`, `GET /admin/users`, `PATCH /admin/users/{id}/role`, `GET /documents/{id}/preview`, `PATCH /documents/{id}`). |
 | `TEST-FE-001` | Next.js 14 Build & Static Generation | ✅ **PASSED** | 19/19 routes compiled & statically generated with 0 TypeScript/ESLint errors. |
+| `TEST-E2E-001` | Full End-to-End Frontend/Backend Workflow | ✅ **PASSED** | 9-step integration verification passed (Auth -> Upload -> Processing -> Preview -> Metadata Edit -> Conversation -> SSE Streaming Q&A -> Citations -> Admin Stats -> Cascading Deletion). |
 | `TEST-AUTH-001` | Keycloak JWT Authentication | ⏳ Pending | Scheduled for Phase 8 (`UKA-8`). |
 | `TEST-DB-001` | Multi-Replica Read-After-Write Sync | ⏳ Pending | Scheduled for Phase 9 (`UKA-10`). |
 | `TEST-CONC-001` | Optimistic Locking 409 Conflict | ⏳ Pending | Scheduled for Phase 9 (`UKA-10`). |

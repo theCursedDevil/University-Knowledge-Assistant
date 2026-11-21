@@ -16,6 +16,7 @@ import {
 import { AppShell } from "@/components/AppShell";
 import { PermissionDeniedState } from "@/components/SystemStates";
 import { useAuth } from "@/context/AuthContext";
+import { uploadDocument, processDocument, ApiDocument } from "@/lib/api";
 
 export default function DocumentUploadPage() {
   const { role } = useAuth();
@@ -27,6 +28,7 @@ export default function DocumentUploadPage() {
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [stageMessage, setStageMessage] = useState("");
+  const [uploadedDoc, setUploadedDoc] = useState<ApiDocument | null>(null);
   const [uploadSuccess, setUploadSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -47,8 +49,8 @@ export default function DocumentUploadPage() {
         setError("Invalid file type: Only official PDF documents are accepted.");
         return;
       }
-      if (selected.size > 10 * 1024 * 1024) {
-        setError("File size exceeds the 10 MB limit.");
+      if (selected.size > 25 * 1024 * 1024) {
+        setError("File size exceeds the 25 MB limit.");
         return;
       }
       setFile(selected);
@@ -58,7 +60,7 @@ export default function DocumentUploadPage() {
     }
   };
 
-  const handleUpload = (e: React.FormEvent) => {
+  const handleUpload = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!file) {
       setError("Please select a PDF document to upload.");
@@ -70,25 +72,35 @@ export default function DocumentUploadPage() {
     }
 
     setIsUploading(true);
-    setUploadProgress(15);
+    setError(null);
+    setUploadProgress(20);
     setStageMessage("Uploading raw PDF to MinIO S3 bucket (university-documents)...");
 
-    setTimeout(() => {
-      setUploadProgress(45);
-      setStageMessage("Extracting text and page boundaries with PyMuPDF...");
-    }, 700);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("title", title.trim());
+      formData.append("category", category);
 
-    setTimeout(() => {
-      setUploadProgress(75);
-      setStageMessage("Generating embeddings via all-MiniLM-L6-v2 and indexing points in Qdrant...");
-    }, 1400);
+      // 1. Upload to FastAPI
+      const doc = await uploadDocument(formData, !autoIndex);
+      setUploadedDoc(doc);
+      setUploadProgress(60);
 
-    setTimeout(() => {
+      // 2. Synchronous processing if auto-index requested
+      if (autoIndex) {
+        setStageMessage("Extracting text with PyMuPDF, generating embeddings, and indexing points in Qdrant...");
+        await processDocument(doc.id);
+      }
+
       setUploadProgress(100);
       setStageMessage("Document successfully indexed and verified in PostgreSQL!");
-      setIsUploading(false);
       setUploadSuccess(true);
-    }, 2100);
+    } catch (err: any) {
+      setError(err.message || "Upload or indexing failed. Verify file integrity.");
+    } finally {
+      setIsUploading(false);
+    }
   };
 
   const handleReset = () => {
@@ -96,13 +108,14 @@ export default function DocumentUploadPage() {
     setTitle("");
     setUploadProgress(0);
     setStageMessage("");
+    setUploadedDoc(null);
     setUploadSuccess(false);
     setError(null);
   };
 
   return (
     <AppShell>
-      <div className="p-6 sm:p-8 max-w-3xl mx-auto space-y-6">
+      <div className="p-6 sm:p-8 max-w-4xl mx-auto space-y-6">
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-zinc-200 dark:border-zinc-800">
           <div>
@@ -113,168 +126,224 @@ export default function DocumentUploadPage() {
               </h1>
             </div>
             <p className="text-xs text-zinc-500 dark:text-zinc-400">
-              Upload university ordinances and guidelines to MinIO and synchronously trigger vectorization
+              Upload official university PDFs for automated extraction, chunking, and Qdrant vector indexing
             </p>
           </div>
 
           <Link
             href="/admin/metadata"
-            className="text-xs font-semibold text-accent hover:underline flex items-center gap-1 self-start sm:self-auto"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition text-zinc-700 dark:text-zinc-300 self-start sm:self-auto cursor-pointer"
           >
-            Manage Existing Metadata (W-12) →
+            <Layers className="w-3.5 h-3.5" />
+            <span>Metadata Management (W-12)</span>
           </Link>
         </div>
 
-        {error && (
-          <div className="p-3.5 rounded-lg bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900/50 flex items-center gap-2 text-xs text-red-600 dark:text-red-400">
-            <AlertTriangle className="w-4 h-4 shrink-0" />
-            <span>{error}</span>
-          </div>
-        )}
-
         {uploadSuccess ? (
-          <div className="p-8 rounded-xl border border-emerald-200 dark:border-emerald-800 bg-emerald-50/40 dark:bg-emerald-950/20 text-center space-y-4">
-            <div className="w-12 h-12 rounded-full bg-emerald-100 dark:bg-emerald-900/50 text-emerald-600 dark:text-emerald-400 flex items-center justify-center mx-auto">
-              <CheckCircle2 className="w-6 h-6" />
-            </div>
-            <div>
-              <h3 className="text-base font-bold text-zinc-900 dark:text-zinc-100">
-                Document Successfully Ingested
-              </h3>
-              <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-1 max-w-md mx-auto">
-                &ldquo;{title}&rdquo; is now searchable across the university RAG pipeline with verified page citations.
-              </p>
+          /* Success Card */
+          <div className="rounded-xl border border-emerald-200 dark:border-emerald-800 bg-emerald-50/50 dark:bg-emerald-950/20 p-6 sm:p-8 space-y-5 animate-in fade-in duration-200">
+            <div className="flex items-start gap-4">
+              <div className="w-10 h-10 rounded-full bg-emerald-100 dark:bg-emerald-900/60 text-emerald-600 flex items-center justify-center shrink-0">
+                <CheckCircle2 className="w-6 h-6" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-sm font-bold text-emerald-950 dark:text-emerald-100">
+                  Document Successfully Ingested
+                </h3>
+                <p className="text-xs text-emerald-800 dark:text-emerald-300">
+                  The document has been securely stored in MinIO, registered in PostgreSQL, and its vector chunks have been indexed into Qdrant.
+                </p>
+              </div>
             </div>
 
-            <div className="flex justify-center gap-3 pt-2">
-              <button
-                onClick={handleReset}
-                className="px-4 py-2 text-xs font-medium rounded-md border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 hover:bg-zinc-50 transition"
-              >
-                Upload Another Document
-              </button>
+            <div className="p-4 rounded-lg bg-white dark:bg-zinc-900 border border-emerald-200 dark:border-emerald-800 text-xs space-y-2">
+              <div className="flex justify-between">
+                <span className="text-zinc-500">Document Title:</span>
+                <span className="font-semibold text-zinc-900 dark:text-zinc-100">{title}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-zinc-500">Category:</span>
+                <span className="font-semibold text-zinc-900 dark:text-zinc-100">{category}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-zinc-500">Status:</span>
+                <span className="font-semibold text-emerald-600 uppercase">Ready (Indexed)</span>
+              </div>
+              {uploadedDoc && (
+                <div className="flex justify-between">
+                  <span className="text-zinc-500">Document ID:</span>
+                  <span className="font-mono text-zinc-700 dark:text-zinc-300 text-[11px]">{uploadedDoc.id}</span>
+                </div>
+              )}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-3 pt-2">
+              {uploadedDoc && (
+                <Link
+                  href={`/documents/${uploadedDoc.id}`}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-md bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 hover:bg-zinc-800 transition cursor-pointer"
+                >
+                  <span>Preview Document (W-08)</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </Link>
+              )}
               <Link
-                href="/documents"
-                className="px-4 py-2 text-xs font-semibold rounded-md bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 hover:bg-zinc-800 transition"
+                href="/chat"
+                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-md bg-accent text-white hover:bg-accent-hover transition cursor-pointer"
               >
-                View in Document Catalog (W-07)
+                <span>Ask RAG Assistant</span>
               </Link>
+              <button
+                type="button"
+                onClick={handleReset}
+                className="px-3.5 py-2 text-xs font-medium rounded-md border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition text-zinc-700 dark:text-zinc-300 cursor-pointer"
+              >
+                Upload Another PDF
+              </button>
             </div>
           </div>
         ) : (
+          /* Upload Form */
           <form onSubmit={handleUpload} className="space-y-6">
-            {/* Drag & Drop Upload Zone */}
-            <div className="border-2 border-dashed border-zinc-200 dark:border-zinc-800 rounded-xl p-8 text-center hover:border-accent transition bg-zinc-50/50 dark:bg-zinc-900/30">
+            {error && (
+              <div className="p-3.5 rounded-lg bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 flex items-center gap-2 text-xs text-red-700 dark:text-red-400">
+                <AlertTriangle className="w-4 h-4 shrink-0" />
+                <span>{error}</span>
+              </div>
+            )}
+
+            {/* Drag & Drop File Target */}
+            <div className="border-2 border-dashed border-zinc-300 dark:border-zinc-700 rounded-xl p-8 text-center hover:border-accent transition bg-zinc-50/50 dark:bg-zinc-900/30 relative">
               <input
                 type="file"
-                id="file-upload"
                 accept=".pdf,application/pdf"
                 onChange={handleFileChange}
-                className="hidden"
                 disabled={isUploading}
+                className="absolute inset-0 opacity-0 cursor-pointer disabled:cursor-not-allowed"
               />
-              <label
-                htmlFor="file-upload"
-                className="cursor-pointer flex flex-col items-center justify-center space-y-2"
-              >
-                <div className="w-10 h-10 rounded-full bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center text-zinc-500">
-                  <UploadCloud className="w-5 h-5 text-accent" />
+              <div className="flex flex-col items-center justify-center space-y-2">
+                <div className="w-12 h-12 rounded-full bg-accent/10 text-accent flex items-center justify-center mb-1">
+                  <UploadCloud className="w-6 h-6" />
                 </div>
-                <div>
-                  <span className="text-xs font-semibold text-zinc-900 dark:text-zinc-100">
-                    {file ? file.name : "Click to browse or drag PDF file here"}
+                {file ? (
+                  <div className="space-y-1">
+                    <span className="text-xs font-bold text-zinc-900 dark:text-zinc-100 block">
+                      {file.name}
+                    </span>
+                    <span className="text-[11px] text-zinc-400 block font-mono">
+                      {(file.size / (1024 * 1024)).toFixed(2)} MB · Valid PDF
+                    </span>
+                    <span className="text-[11px] text-accent underline block pt-1">
+                      Click to choose a different PDF
+                    </span>
+                  </div>
+                ) : (
+                  <>
+                    <p className="text-xs font-semibold text-zinc-800 dark:text-zinc-200">
+                      Drag and drop university PDF here, or <span className="text-accent underline">browse</span>
+                    </p>
+                    <p className="text-[11px] text-zinc-400">
+                      Supports official circulars, exam manuals, ordinances, and hostel rules (Max 25 MB)
+                    </p>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Metadata Fields */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                  Official Document Title
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. University Examination Regulations 2024-25"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  disabled={isUploading}
+                  className="w-full px-3 py-2 text-xs rounded-md border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 focus:outline-hidden focus:border-accent disabled:opacity-50"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                  Document Category
+                </label>
+                <select
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value)}
+                  disabled={isUploading}
+                  className="w-full px-3 py-2 text-xs rounded-md border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 focus:outline-hidden focus:border-accent disabled:opacity-50 cursor-pointer"
+                >
+                  <option value="Academic">Academic</option>
+                  <option value="Examinations">Examinations</option>
+                  <option value="Hostel">Hostel</option>
+                  <option value="Placements">Placements</option>
+                  <option value="Admissions">Admissions</option>
+                  <option value="Regulations">Regulations</option>
+                  <option value="General">General</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Automated Ingestion Pipeline Options */}
+            <div className="p-4 rounded-lg bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 space-y-3">
+              <label className="flex items-start gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={autoIndex}
+                  onChange={(e) => setAutoIndex(e.target.checked)}
+                  disabled={isUploading}
+                  className="mt-0.5 rounded border-zinc-300 text-accent focus:ring-accent"
+                />
+                <div className="space-y-0.5">
+                  <span className="text-xs font-semibold text-zinc-900 dark:text-zinc-100 block">
+                    Trigger automated ingestion pipeline immediately
                   </span>
-                  <p className="text-[11px] text-zinc-400 mt-0.5">
-                    {file
-                      ? `${(file.size / (1024 * 1024)).toFixed(2)} MB · Ready for ingestion`
-                      : "Official university circulars, ordinances, syllabi (PDF only, max 10 MB)"}
+                  <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                    Extracts pages via PyMuPDF, chunks text, creates embeddings using all-MiniLM-L6-v2, and indexes vector coordinates into Qdrant.
                   </p>
                 </div>
               </label>
             </div>
 
-            {/* Document Details */}
-            <div className="p-5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-1">
-                  Document Title
-                </label>
-                <input
-                  type="text"
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  placeholder="e.g. Academic Ordinance on Examination Re-evaluation 2026"
-                  className="w-full px-3 py-2 text-xs rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-hidden focus:ring-1 focus:ring-accent"
-                  required
-                />
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-1">
-                    Knowledge Category
-                  </label>
-                  <select
-                    value={category}
-                    onChange={(e) => setCategory(e.target.value)}
-                    className="w-full px-3 py-2 text-xs rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100"
-                  >
-                    <option value="Academic">Academic Regulations</option>
-                    <option value="Examinations">Examinations & Grading</option>
-                    <option value="Hostel">Hostel & Student Life</option>
-                    <option value="Placements">Placements & Internships</option>
-                    <option value="Admissions">Admissions & Scholarships</option>
-                    <option value="General">General Administrative Notices</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-1">
-                    Vector Pipeline
-                  </label>
-                  <div className="flex items-center gap-2 pt-2">
-                    <input
-                      type="checkbox"
-                      id="auto-index"
-                      checked={autoIndex}
-                      onChange={(e) => setAutoIndex(e.target.checked)}
-                      className="rounded border-zinc-300 text-accent focus:ring-accent"
-                    />
-                    <label htmlFor="auto-index" className="text-xs text-zinc-700 dark:text-zinc-300">
-                      Auto-index vectors in Qdrant upon upload
-                    </label>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Ingestion Progress Bar */}
+            {/* Active Ingestion Progress Bar */}
             {isUploading && (
-              <div className="p-4 rounded-lg bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 space-y-2">
-                <div className="flex items-center justify-between text-xs">
+              <div className="space-y-2 p-4 rounded-lg bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 animate-in fade-in">
+                <div className="flex justify-between text-xs">
                   <span className="font-semibold text-zinc-800 dark:text-zinc-200 flex items-center gap-1.5">
-                    <RefreshCw className="w-3.5 h-3.5 animate-spin text-accent" />
+                    <RefreshCw className="w-3.5 h-3.5 text-accent animate-spin" />
                     {stageMessage}
                   </span>
                   <span className="font-mono text-zinc-500">{uploadProgress}%</span>
                 </div>
-                <div className="w-full bg-zinc-200 dark:bg-zinc-800 h-1.5 rounded-full overflow-hidden">
+                <div className="w-full h-1.5 rounded-full bg-zinc-200 dark:bg-zinc-800 overflow-hidden">
                   <div
-                    className="bg-accent h-full transition-all duration-300"
+                    className="h-full bg-accent transition-all duration-300"
                     style={{ width: `${uploadProgress}%` }}
                   />
                 </div>
               </div>
             )}
 
-            <button
-              type="submit"
-              disabled={isUploading || !file}
-              className="w-full py-2.5 px-4 rounded-md bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 text-xs font-semibold hover:bg-zinc-800 dark:hover:bg-zinc-200 transition disabled:opacity-50 cursor-pointer flex items-center justify-center gap-2"
-            >
-              <UploadCloud className="w-4 h-4" />
-              <span>Begin Ingestion & Vector Indexing</span>
-            </button>
+            {/* Submit Actions */}
+            <div className="flex justify-end gap-3 pt-2">
+              <Link
+                href="/documents"
+                className="px-4 py-2 text-xs font-medium rounded-md border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition text-zinc-700 dark:text-zinc-300 cursor-pointer"
+              >
+                Cancel
+              </Link>
+              <button
+                type="submit"
+                disabled={isUploading || !file}
+                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-md bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 hover:bg-zinc-800 dark:hover:bg-zinc-200 transition disabled:opacity-40 cursor-pointer shadow-xs"
+              >
+                <UploadCloud className="w-4 h-4" />
+                <span>{isUploading ? "Ingesting..." : "Ingest Document"}</span>
+              </button>
+            </div>
           </form>
         )}
       </div>

@@ -75,10 +75,10 @@ export default function AdminUserManagementPage() {
     setSelectedNewRole(user.role);
   };
 
-  const handleConfirmRoleChange = () => {
+  const handleConfirmRoleChange = async () => {
     if (!editingUser) return;
 
-    const res = updateUserRole(editingUser.id, selectedNewRole);
+    const res = await updateUserRole(editingUser.id, selectedNewRole);
     if (!res.success) {
       showToast(res.error || "Failed to update role.", "error");
     } else {

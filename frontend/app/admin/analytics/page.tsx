@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import {
   BarChart3,
@@ -12,14 +12,39 @@ import {
   Layers,
   ArrowUpRight,
   ShieldCheck,
+  FileText,
+  MessageSquare,
+  Users,
+  Activity,
 } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
-import { PermissionDeniedState } from "@/components/SystemStates";
+import { PermissionDeniedState, LoadingState } from "@/components/SystemStates";
 import { useAuth } from "@/context/AuthContext";
-import { MOCK_ANALYTICS } from "@/lib/mockData";
+import { fetchAdminStats, ApiAdminStats } from "@/lib/api";
+import { formatDate } from "@/lib/utils";
 
 export default function AnalyticsDashboardPage() {
   const { role } = useAuth();
+  const [stats, setStats] = useState<ApiAdminStats | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  const loadStats = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const data = await fetchAdminStats();
+      setStats(data);
+    } catch {
+      setStats(null);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (role === "admin") {
+      loadStats();
+    }
+  }, [role, loadStats]);
 
   if (role !== "admin") {
     return (
@@ -28,6 +53,9 @@ export default function AnalyticsDashboardPage() {
       </AppShell>
     );
   }
+
+  const categoryEntries = stats?.documents_by_category ? Object.entries(stats.documents_by_category) : [];
+  const totalCategoryDocs = categoryEntries.reduce((acc, [, count]) => acc + count, 0) || 1;
 
   return (
     <AppShell>
@@ -47,143 +75,150 @@ export default function AnalyticsDashboardPage() {
           </div>
 
           <div className="flex items-center gap-2 text-xs font-mono text-zinc-500">
-            <span className="w-2 h-2 rounded-full bg-emerald-500" />
-            <span>FastAPI + Qdrant Node: Healthy</span>
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            <span>FastAPI + PostgreSQL + Qdrant: Online</span>
           </div>
         </div>
 
-        {/* Primary Metrics Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {MOCK_ANALYTICS.metrics.map((m) => (
-            <div
-              key={m.title}
-              className="p-5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-2xs space-y-2"
-            >
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400 block">
-                {m.title}
-              </span>
-              <div className="flex items-baseline justify-between">
-                <span className="text-2xl font-bold text-zinc-900 dark:text-zinc-100 font-mono">
-                  {m.value}
-                </span>
-                <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 flex items-center">
-                  <TrendingUp className="w-3.5 h-3.5 mr-0.5" />
-                  {m.change.split(" ")[0]}
-                </span>
-              </div>
-              <p className="text-[11px] text-zinc-500 dark:text-zinc-400 leading-snug">
-                {m.description}
-              </p>
-            </div>
-          ))}
-        </div>
-
-        {/* Two Columns: Category Demand & Confidence Breakdown */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Query Demand by Category */}
-          <div className="p-5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 space-y-4">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
-              <Search className="w-4 h-4 text-accent" />
-              Most Queried Knowledge Categories
-            </h3>
-
-            <div className="space-y-3.5">
-              {MOCK_ANALYTICS.popularCategories.map((cat) => (
-                <div key={cat.name} className="space-y-1.5">
-                  <div className="flex justify-between text-xs">
-                    <span className="font-medium text-zinc-800 dark:text-zinc-200">{cat.name}</span>
-                    <span className="font-mono text-zinc-500">
-                      {cat.queries.toLocaleString()} ({cat.percentage}%)
-                    </span>
-                  </div>
-                  <div className="w-full bg-zinc-100 dark:bg-zinc-800 h-2 rounded-full overflow-hidden">
-                    <div
-                      className="bg-accent h-full rounded-full transition-all"
-                      style={{ width: `${cat.percentage}%` }}
-                    />
-                  </div>
+        {isLoading ? (
+          <LoadingState message="Aggregating system statistics from PostgreSQL tables..." />
+        ) : stats ? (
+          <>
+            {/* Primary Metrics Grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="p-5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-2xs space-y-2">
+                <div className="flex items-center justify-between text-zinc-400 text-[11px] font-semibold uppercase tracking-wider">
+                  <span>Knowledge Base PDFs</span>
+                  <FileText className="w-4 h-4 text-accent" />
                 </div>
-              ))}
+                <div className="text-2xl font-bold text-zinc-900 dark:text-zinc-100 font-mono">
+                  {stats.total_documents}
+                </div>
+                <p className="text-[11px] text-zinc-500 dark:text-zinc-400 leading-snug">
+                  Official university regulations stored in MinIO
+                </p>
+              </div>
+
+              <div className="p-5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-2xs space-y-2">
+                <div className="flex items-center justify-between text-zinc-400 text-[11px] font-semibold uppercase tracking-wider">
+                  <span>Vector Chunks</span>
+                  <Layers className="w-4 h-4 text-accent" />
+                </div>
+                <div className="text-2xl font-bold text-zinc-900 dark:text-zinc-100 font-mono">
+                  {stats.total_chunks}
+                </div>
+                <p className="text-[11px] text-zinc-500 dark:text-zinc-400 leading-snug">
+                  Indexed with all-MiniLM-L6-v2 in Qdrant
+                </p>
+              </div>
+
+              <div className="p-5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-2xs space-y-2">
+                <div className="flex items-center justify-between text-zinc-400 text-[11px] font-semibold uppercase tracking-wider">
+                  <span>Chat Inquiries</span>
+                  <MessageSquare className="w-4 h-4 text-accent" />
+                </div>
+                <div className="text-2xl font-bold text-zinc-900 dark:text-zinc-100 font-mono">
+                  {stats.total_messages}
+                </div>
+                <p className="text-[11px] text-zinc-500 dark:text-zinc-400 leading-snug">
+                  Across {stats.total_conversations} conversation threads
+                </p>
+              </div>
+
+              <div className="p-5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-2xs space-y-2">
+                <div className="flex items-center justify-between text-zinc-400 text-[11px] font-semibold uppercase tracking-wider">
+                  <span>Registered Users</span>
+                  <Users className="w-4 h-4 text-accent" />
+                </div>
+                <div className="text-2xl font-bold text-zinc-900 dark:text-zinc-100 font-mono">
+                  {stats.total_users}
+                </div>
+                <p className="text-[11px] text-zinc-500 dark:text-zinc-400 leading-snug">
+                  Enrolled under Student, Faculty, & Admin RBAC
+                </p>
+              </div>
             </div>
-          </div>
 
-          {/* Cosine Confidence Distribution */}
-          <div className="p-5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 space-y-4">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
-              <ShieldCheck className="w-4 h-4 text-accent" />
-              Retrieval Confidence Distribution
-            </h3>
+            {/* Two Columns: Category Breakdown & Audit Log Stream */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Category Breakdown */}
+              <div className="p-5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 space-y-4">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
+                  <Search className="w-4 h-4 text-accent" />
+                  Knowledge Category Distribution
+                </h3>
 
-            <div className="border border-zinc-200 dark:border-zinc-800 rounded-md overflow-hidden text-xs">
-              <table className="w-full text-left">
-                <thead className="bg-zinc-50 dark:bg-zinc-800/40 text-[10px] uppercase font-semibold text-zinc-500 border-b border-zinc-200 dark:border-zinc-800">
-                  <tr>
-                    <th className="py-2.5 px-3">Cosine Score Range</th>
-                    <th className="py-2.5 px-3">Category</th>
-                    <th className="py-2.5 px-3 text-right">Queries</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
-                  {MOCK_ANALYTICS.confidenceDistribution.map((row) => (
-                    <tr key={row.range} className="hover:bg-zinc-50 dark:hover:bg-zinc-800/20">
-                      <td className="py-2.5 px-3 font-mono font-medium text-zinc-800 dark:text-zinc-200">
-                        {row.range}
-                      </td>
-                      <td className="py-2.5 px-3 text-zinc-600 dark:text-zinc-400">
-                        {row.label}
-                      </td>
-                      <td className="py-2.5 px-3 text-right font-mono font-semibold text-zinc-900 dark:text-zinc-100">
-                        {row.count.toLocaleString()}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                {categoryEntries.length === 0 ? (
+                  <p className="text-xs text-zinc-400 py-4">No categories recorded yet.</p>
+                ) : (
+                  <div className="space-y-3.5">
+                    {categoryEntries.map(([catName, count]) => {
+                      const pct = Math.round((count / totalCategoryDocs) * 100);
+                      return (
+                        <div key={catName} className="space-y-1.5">
+                          <div className="flex justify-between text-xs">
+                            <span className="font-medium text-zinc-800 dark:text-zinc-200">{catName}</span>
+                            <span className="font-mono text-zinc-500">
+                              {count} docs ({pct}%)
+                            </span>
+                          </div>
+                          <div className="w-full bg-zinc-100 dark:bg-zinc-800 h-2 rounded-full overflow-hidden">
+                            <div
+                              className="bg-accent h-full rounded-full transition-all duration-300"
+                              style={{ width: `${pct}%` }}
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Live Audit Log Stream */}
+              <div className="p-5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 space-y-4">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
+                  <Activity className="w-4 h-4 text-accent" />
+                  System Audit Trail (PostgreSQL)
+                </h3>
+
+                {stats.recent_audit_logs.length === 0 ? (
+                  <p className="text-xs text-zinc-400 py-4">No audit logs recorded yet.</p>
+                ) : (
+                  <div className="space-y-2.5 max-h-80 overflow-y-auto pr-1">
+                    {stats.recent_audit_logs.map((log) => (
+                      <div
+                        key={log.id}
+                        className="p-3 rounded-md bg-zinc-50 dark:bg-zinc-950 border border-zinc-100 dark:border-zinc-850 text-xs flex items-start justify-between gap-3"
+                      >
+                        <div className="space-y-0.5">
+                          <div className="font-semibold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
+                            <span className="px-1.5 py-0.5 rounded text-[10px] bg-zinc-200 dark:bg-zinc-800 font-mono">
+                              {log.action}
+                            </span>
+                            <span className="text-zinc-500 font-mono text-[11px]">{log.entity}</span>
+                          </div>
+                          {log.details && (
+                            <p className="text-[11px] text-zinc-400 font-mono truncate max-w-xs">
+                              {JSON.stringify(log.details)}
+                            </p>
+                          )}
+                        </div>
+                        <span className="text-[10px] font-mono text-zinc-400 shrink-0">
+                          {formatDate(log.created_at)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
-
-            <p className="text-[11px] text-zinc-500 dark:text-zinc-400 leading-relaxed">
-              Confidence scores below 0.60 trigger the standardized gating fallback to avoid hallucinations without invoking the LLM.
-            </p>
+          </>
+        ) : (
+          <div className="p-8 text-center text-zinc-400 text-xs">
+            Unable to connect to FastAPI analytics service. Verify backend is running on port 8000.
           </div>
-        </div>
-
-        {/* Audit Log Stream */}
-        <div className="p-5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
-              <Clock className="w-4 h-4 text-accent" />
-              Recent System Audit Log
-            </h3>
-            <span className="text-[10px] font-mono text-zinc-400">PostgreSQL audit_log table</span>
-          </div>
-
-          <div className="border border-zinc-200 dark:border-zinc-800 rounded-md overflow-hidden text-xs">
-            <table className="w-full text-left">
-              <thead className="bg-zinc-50 dark:bg-zinc-800/40 text-[10px] uppercase font-semibold text-zinc-500 border-b border-zinc-200 dark:border-zinc-800">
-                <tr>
-                  <th className="py-2.5 px-3">Timestamp</th>
-                  <th className="py-2.5 px-3">Action</th>
-                  <th className="py-2.5 px-3">Actor</th>
-                  <th className="py-2.5 px-3">Target Details</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800 font-mono text-[11px]">
-                {MOCK_ANALYTICS.recentAuditLogs.map((log) => (
-                  <tr key={log.id} className="hover:bg-zinc-50 dark:hover:bg-zinc-800/20">
-                    <td className="py-2.5 px-3 text-zinc-400">{log.timestamp}</td>
-                    <td className="py-2.5 px-3">
-                      <span className="px-1.5 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 font-semibold text-[10px]">
-                        {log.action}
-                      </span>
-                    </td>
-                    <td className="py-2.5 px-3 text-zinc-600 dark:text-zinc-400">{log.user}</td>
-                    <td className="py-2.5 px-3 text-zinc-800 dark:text-zinc-200">{log.target}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
+        )}
       </div>
     </AppShell>
   );

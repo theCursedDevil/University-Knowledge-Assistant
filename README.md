@@ -197,8 +197,14 @@ Endpoints:
 |---|---|---|---|
 | `GET` | `/health` / `/api/v1/health` | Service health status & external service connectivity | Public |
 | `GET` | `/docs` / `/redoc` | Swagger and ReDoc interactive OpenAPI documentation | Public |
+| `GET` | `/me` / `/api/v1/me` | Current user profile, role, and permissions | Authenticated (`X-Dev-Role`) |
+| `POST` | `/auth/login` / `/api/v1/auth/login` | Local authentication & token provisioning | Public |
+| `GET` | `/auth/callback` | OAuth 2.0 / OIDC redirect handler | Public |
 | `POST` | `/api/v1/documents` | Multipart PDF upload, MinIO storage, and optional auto-indexing | Admin (`X-Dev-Role: admin`) |
 | `GET` | `/api/v1/documents` | List uploaded documents with category filtering and pagination | User (`X-Dev-Role`) |
+| `GET` | `/api/v1/documents/{id}` | Retrieve individual document metadata | User (`X-Dev-Role`) |
+| `GET` | `/api/v1/documents/{id}/preview` | Live PyMuPDF text extraction from MinIO raw PDF | User (`X-Dev-Role`) |
+| `PATCH` | `/api/v1/documents/{id}` | Update document title and category metadata with audit trail | Admin (`X-Dev-Role: admin`) |
 | `GET` | `/api/v1/documents/{id}/chunks` | Retrieve chunk metadata, page provenance, and vector IDs | User (`X-Dev-Role`) |
 | `POST` | `/api/v1/documents/{id}/process` | Trigger synchronous PDF extraction, chunking, and Qdrant indexing | Admin (`X-Dev-Role: admin`) |
 | `POST` | `/api/v1/documents/search` | Top-k semantic vector search with cosine similarity | User (`X-Dev-Role`) |
@@ -207,7 +213,11 @@ Endpoints:
 | `POST` | `/conversations` | Start a new persistent conversation thread | User |
 | `GET` | `/conversations` | List current user's conversations (ordered by most recently updated) | User |
 | `GET` | `/conversations/{id}` | Get messages in a conversation thread (restricted to owner) | User (Owner) |
-| `POST` | `/conversations/{id}/messages` | Ask a question, retrieve last 6 turns context, invoke RAG, save turn + citations | User (Owner) |
+| `DELETE` | `/conversations/{id}` | Owner-restricted conversation thread deletion | User (Owner) |
+| `POST` | `/conversations/{id}/messages` | Ask a question (supports SSE `?stream=true`), retrieve context, save turn + citations | User (Owner) |
+| `GET` | `/admin/stats` / `/api/v1/admin/stats` | System KPI analytics, document counts, query stats, audit log stream | Admin (`X-Dev-Role: admin`) |
+| `GET` | `/admin/users` / `/api/v1/admin/users` | List registered user directory | Admin (`X-Dev-Role: admin`) |
+| `PATCH` | `/admin/users/{id}/role` | Update user role with self-lockout safety guard | Admin (`X-Dev-Role: admin`) |
 
 ### Database Migrations (Alembic)
 Manage and apply PostgreSQL database schema migrations:

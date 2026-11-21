@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useState, useEffect } from "react";
+import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
 import {
   UserProfile,
   Role,
@@ -8,31 +8,41 @@ import {
   UserPreferences,
   DEFAULT_PREFERENCES,
 } from "@/lib/mockData";
+import {
+  fetchCurrentUser,
+  loginUser,
+  fetchAdminUsers,
+  updateAdminUserRole,
+  ApiUser,
+} from "@/lib/api";
 
 interface AuthContextType {
   currentUser: UserProfile;
   role: Role;
   switchRole: (newRole: Role) => void;
   isAuthenticated: boolean;
-  login: (email: string, role?: Role) => void;
+  login: (email: string, role?: Role, name?: string) => Promise<void>;
   logout: () => void;
   allUsers: UserProfile[];
-  updateUserRole: (userId: string, newRole: Role) => { success: boolean; error?: string };
+  updateUserRole: (userId: string, newRole: Role) => Promise<{ success: boolean; error?: string }>;
   toggleUserStatus: (userId: string) => { success: boolean; error?: string };
   preferences: UserPreferences;
   updatePreferences: (updates: Partial<UserPreferences>) => void;
   resetPreferences: () => void;
+  isLoading: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [usersList, setUsersList] = useState<UserProfile[]>(MOCK_USERS);
-  const [currentUser, setCurrentUser] = useState<UserProfile>(MOCK_USERS[0]); // default: student
+  const [currentUser, setCurrentUser] = useState<UserProfile>(MOCK_USERS[0]);
+  const [role, setRole] = useState<Role>("student");
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(true);
+  const [allUsers, setAllUsers] = useState<UserProfile[]>(MOCK_USERS);
   const [preferences, setPreferences] = useState<UserPreferences>(DEFAULT_PREFERENCES);
+  const [isLoading, setIsLoading] = useState<boolean>(false);
 
-  // Synchronize dark/light class with preferences
+  // Synchronize dark/light theme
   useEffect(() => {
     const root = document.documentElement;
     if (preferences.theme === "dark") {
@@ -42,45 +52,125 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [preferences.theme]);
 
-  // Switch role by picking a corresponding mock persona
-  const switchRole = (newRole: Role) => {
-    const match = usersList.find((u) => u.role === newRole) || {
-      id: `usr-${newRole}`,
-      name: `${newRole.toUpperCase()} User`,
-      email: `${newRole}@university.edu`,
-      role: newRole,
-      createdAt: new Date().toISOString(),
-      status: "active",
-    };
-    setCurrentUser(match);
+  // Load active user from backend GET /me on startup
+  const loadUserFromBackend = useCallback(async (targetRole?: Role, targetEmail?: string) => {
+    setIsLoading(true);
+    try {
+      const activeRole = targetRole || (localStorage.getItem("uka_user_role") as Role) || "student";
+      const activeEmail = targetEmail || localStorage.getItem("uka_user_email") || undefined;
+      const apiUser: ApiUser = await fetchCurrentUser(activeRole, activeEmail);
+
+      const profile: UserProfile = {
+        id: apiUser.id,
+        name: apiUser.name,
+        email: apiUser.email,
+        role: apiUser.role as Role,
+        createdAt: apiUser.created_at,
+        status: "active",
+      };
+      setCurrentUser(profile);
+      setRole(profile.role);
+      setIsAuthenticated(true);
+      localStorage.setItem("uka_user_role", profile.role);
+      localStorage.setItem("uka_user_email", profile.email);
+    } catch {
+      // Fallback to local persona state if backend is unreachable during build
+      const fallbackRole = targetRole || "student";
+      const fallbackUser = MOCK_USERS.find((u) => u.role === fallbackRole) || MOCK_USERS[0];
+      setCurrentUser(fallbackUser);
+      setRole(fallbackUser.role);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadUserFromBackend();
+  }, [loadUserFromBackend]);
+
+  // Load users list for admin user management
+  const refreshUsersList = useCallback(async () => {
+    try {
+      const users = await fetchAdminUsers();
+      if (users && users.length > 0) {
+        setAllUsers(
+          users.map((u) => ({
+            id: u.id,
+            name: u.name,
+            email: u.email,
+            role: u.role as Role,
+            createdAt: u.created_at,
+            status: "active",
+          }))
+        );
+      }
+    } catch {
+      // Retain existing users list
+    }
+  }, []);
+
+  useEffect(() => {
+    if (role === "admin") {
+      refreshUsersList();
+    }
+  }, [role, refreshUsersList]);
+
+  // 1-Click Role Switcher (Student / Faculty / Admin)
+  const switchRole = async (newRole: Role) => {
+    setRole(newRole);
+    localStorage.setItem("uka_user_role", newRole);
+    localStorage.removeItem("uka_user_email"); // reset custom email on role persona switch
+    await loadUserFromBackend(newRole);
   };
 
-  const login = (email: string, overrideRole?: Role) => {
-    const existing = usersList.find((u) => u.email.toLowerCase() === email.toLowerCase());
-    if (existing) {
-      setCurrentUser(existing);
-    } else {
+  // Login entry point connected to POST /auth/login
+  const login = async (email: string, overrideRole?: Role, name?: string) => {
+    setIsLoading(true);
+    try {
+      const selectedRole = overrideRole || "student";
+      const res = await loginUser(email, selectedRole, name);
+      const profile: UserProfile = {
+        id: res.user.id,
+        name: res.user.name,
+        email: res.user.email,
+        role: res.user.role as Role,
+        createdAt: res.user.created_at,
+        status: "active",
+      };
+      setCurrentUser(profile);
+      setRole(profile.role);
+      setIsAuthenticated(true);
+      localStorage.setItem("uka_user_role", profile.role);
+      localStorage.setItem("uka_user_email", profile.email);
+    } catch {
+      // Fallback local provision
       const newUser: UserProfile = {
         id: `usr-${Date.now()}`,
-        name: email.split("@")[0].replace(".", " ").toUpperCase(),
+        name: name || email.split("@")[0].replace(".", " ").toUpperCase(),
         email: email,
         role: overrideRole || "student",
         createdAt: new Date().toISOString(),
         status: "active",
       };
-      setUsersList((prev) => [newUser, ...prev]);
       setCurrentUser(newUser);
+      setRole(newUser.role);
+      setIsAuthenticated(true);
+    } finally {
+      setIsLoading(false);
     }
-    setIsAuthenticated(true);
   };
 
   const logout = () => {
     setIsAuthenticated(false);
+    localStorage.removeItem("uka_user_role");
+    localStorage.removeItem("uka_user_email");
   };
 
-  // Admin user management functions (W-18)
-  const updateUserRole = (userId: string, newRole: Role): { success: boolean; error?: string } => {
-    // Safety Requirement: Do not allow an administrator to accidentally remove their own admin access
+  // Admin user role update (W-18)
+  const updateUserRole = async (
+    userId: string,
+    newRole: Role
+  ): Promise<{ success: boolean; error?: string }> => {
     if (currentUser.id === userId && currentUser.role === "admin" && newRole !== "admin") {
       return {
         success: false,
@@ -88,20 +178,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       };
     }
 
-    setUsersList((prev) =>
-      prev.map((u) => (u.id === userId ? { ...u, role: newRole } : u))
-    );
-
-    // If updating current user's profile
-    if (currentUser.id === userId) {
-      setCurrentUser((prev) => ({ ...prev, role: newRole }));
+    try {
+      await updateAdminUserRole(userId, newRole);
+      setAllUsers((prev) =>
+        prev.map((u) => (u.id === userId ? { ...u, role: newRole } : u))
+      );
+      if (currentUser.id === userId) {
+        setCurrentUser((prev) => ({ ...prev, role: newRole }));
+        setRole(newRole);
+      }
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err.message || "Failed to update role on backend." };
     }
-
-    return { success: true };
   };
 
   const toggleUserStatus = (userId: string): { success: boolean; error?: string } => {
-    // Safety Requirement: Cannot disable own admin account
     if (currentUser.id === userId && currentUser.role === "admin") {
       return {
         success: false,
@@ -109,7 +201,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       };
     }
 
-    setUsersList((prev) =>
+    setAllUsers((prev) =>
       prev.map((u) =>
         u.id === userId
           ? { ...u, status: u.status === "active" ? "disabled" : "active" }
@@ -131,17 +223,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     <AuthContext.Provider
       value={{
         currentUser,
-        role: currentUser.role,
+        role,
         switchRole,
         isAuthenticated,
         login,
         logout,
-        allUsers: usersList,
+        allUsers,
         updateUserRole,
         toggleUserStatus,
         preferences,
         updatePreferences,
         resetPreferences,
+        isLoading,
       }}
     >
       {children}

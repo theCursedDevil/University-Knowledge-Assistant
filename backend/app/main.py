@@ -23,6 +23,8 @@ from backend.app.api.router import api_router
 from backend.app.api.health import router as health_router
 from backend.app.api.documents import router as documents_router
 from backend.app.api.conversations import router as conversations_router
+from backend.app.api.auth import router as auth_router
+from backend.app.api.admin import router as admin_router
 
 settings = get_settings()
 
@@ -160,10 +162,12 @@ def create_app() -> FastAPI:
             ).model_dump(),
         )
 
-    # 3. Mount Direct Endpoints at Root (/health, /documents, /conversations) per requirements
+    # 3. Mount Direct Endpoints at Root (/health, /documents, /conversations, /me, /admin) per requirements
     app.include_router(health_router, prefix="", tags=["Health"])
     app.include_router(documents_router, prefix="", tags=["Documents"])
     app.include_router(conversations_router, prefix="", tags=["Conversations"])
+    app.include_router(auth_router, prefix="", tags=["Auth"])
+    app.include_router(admin_router, prefix="", tags=["Admin"])
 
     # 4. Mount Versioned API Router (/api/v1)
     app.include_router(api_router, prefix=settings.API_V1_PREFIX)

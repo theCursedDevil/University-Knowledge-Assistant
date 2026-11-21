@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import {
@@ -16,9 +16,18 @@ import {
   User,
   HardDrive,
   ExternalLink,
+  AlertTriangle,
 } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
-import { MOCK_DOCUMENTS, DocumentItem } from "@/lib/mockData";
+import { LoadingState, ErrorState } from "@/components/SystemStates";
+import {
+  fetchDocumentById,
+  fetchDocumentPreview,
+  fetchDocumentChunks,
+  ApiDocument,
+  ApiDocumentPreview,
+  ApiDocumentChunk,
+} from "@/lib/api";
 import { formatDate } from "@/lib/utils";
 
 export default function DocumentPreviewPage() {
@@ -26,10 +35,39 @@ export default function DocumentPreviewPage() {
   const router = useRouter();
   const docId = params.id as string;
 
-  const doc = MOCK_DOCUMENTS.find((d) => d.id === docId) || MOCK_DOCUMENTS[0];
-
+  const [document, setDocument] = useState<ApiDocument | null>(null);
+  const [preview, setPreview] = useState<ApiDocumentPreview | null>(null);
+  const [chunks, setChunks] = useState<ApiDocumentChunk[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
-  const totalPages = doc.pageCount || 10;
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadData = useCallback(async () => {
+    if (!docId) return;
+    setIsLoading(true);
+    setError(null);
+    try {
+      const [docData, previewData, chunksData] = await Promise.all([
+        fetchDocumentById(docId),
+        fetchDocumentPreview(docId).catch(() => null),
+        fetchDocumentChunks(docId).catch(() => []),
+      ]);
+      setDocument(docData);
+      setPreview(previewData);
+      setChunks(chunksData);
+    } catch (err: any) {
+      setError(err.message || "Failed to load document preview from repository.");
+    } finally {
+      setIsLoading(false);
+    }
+  }, [docId]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  const totalPages = preview?.page_count || 1;
+  const activePageData = preview?.pages?.find((p) => p.page_number === currentPage);
 
   const handleNextPage = () => {
     if (currentPage < totalPages) setCurrentPage((prev) => prev + 1);
@@ -38,6 +76,30 @@ export default function DocumentPreviewPage() {
   const handlePrevPage = () => {
     if (currentPage > 1) setCurrentPage((prev) => prev - 1);
   };
+
+  if (isLoading) {
+    return (
+      <AppShell>
+        <div className="p-8">
+          <LoadingState message="Fetching PDF file and vector chunks from MinIO and Qdrant..." />
+        </div>
+      </AppShell>
+    );
+  }
+
+  if (error || !document) {
+    return (
+      <AppShell>
+        <div className="p-8">
+          <ErrorState
+            code="DOC_NOT_FOUND"
+            message={error || `The document with ID ${docId} could not be retrieved from the database.`}
+            onRetry={loadData}
+          />
+        </div>
+      </AppShell>
+    );
+  }
 
   return (
     <AppShell>
@@ -55,21 +117,21 @@ export default function DocumentPreviewPage() {
             <div className="min-w-0">
               <div className="flex items-center gap-2">
                 <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300">
-                  {doc.category}
+                  {document.category}
                 </span>
                 <h1 className="text-xs sm:text-sm font-bold text-zinc-900 dark:text-zinc-100 truncate">
-                  {doc.title}
+                  {document.title}
                 </h1>
               </div>
               <span className="text-[11px] text-zinc-400 font-mono hidden sm:inline">
-                {doc.filename} · v{doc.version}
+                {document.storage_path.split("/").pop()} · v{document.version} · Status: {document.status}
               </span>
             </div>
           </div>
 
           <div className="flex items-center gap-2">
             <Link
-              href={`/chat`}
+              href="/chat"
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-accent text-white text-xs font-semibold hover:bg-accent-hover transition cursor-pointer"
             >
               <MessageSquare className="w-3.5 h-3.5" />
@@ -107,121 +169,114 @@ export default function DocumentPreviewPage() {
                 </button>
               </div>
 
-              <div className="flex items-center gap-3">
-                <span className="text-[11px] font-mono text-zinc-400">PyMuPDF Text Extract</span>
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                <span className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">
-                  Verified Ingestion
-                </span>
-              </div>
+              {activePageData?.section && (
+                <div className="text-[11px] font-mono text-zinc-400 truncate max-w-xs">
+                  Section: {activePageData.section}
+                </div>
+              )}
             </div>
 
-            {/* Document Page Simulation Sheet */}
-            <div className="flex-1 overflow-y-auto p-6 flex justify-center">
-              <div className="w-full max-w-2xl bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg shadow-sm p-8 space-y-6 text-zinc-800 dark:text-zinc-200 font-serif leading-relaxed text-xs sm:text-sm">
-                <div className="border-b border-zinc-200 dark:border-zinc-800 pb-4 text-center font-sans space-y-1">
-                  <span className="text-[10px] uppercase tracking-wider text-zinc-400">
-                    Official University Ordinance
-                  </span>
-                  <h2 className="text-base font-bold text-zinc-900 dark:text-zinc-100">
-                    {doc.title}
-                  </h2>
-                  <p className="text-[11px] text-zinc-500 font-mono">
-                    Document Ref: UKA-{doc.category.toUpperCase()}-2026/04 · Physical Page {currentPage}
-                  </p>
+            {/* Rendered Text Page Viewport */}
+            <div className="flex-1 overflow-y-auto p-4 sm:p-8 flex justify-center">
+              <div className="w-full max-w-2xl bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg shadow-sm p-8 sm:p-12 space-y-4 font-serif text-xs leading-relaxed text-zinc-800 dark:text-zinc-200 self-start">
+                <div className="border-b border-zinc-100 dark:border-zinc-850 pb-3 flex justify-between items-center text-[10px] font-sans text-zinc-400 uppercase tracking-wider">
+                  <span>{document.title}</span>
+                  <span>Page {currentPage}</span>
                 </div>
 
-                <div className="space-y-4">
-                  <div className="p-3 bg-amber-50/50 dark:bg-amber-950/20 border-l-2 border-accent rounded-r-md">
-                    <span className="font-sans text-[11px] font-bold text-accent uppercase tracking-wider block mb-1">
-                      Chunk Section #{currentPage}.1 · Vectorized for Cosine Search
-                    </span>
-                    <p className="font-sans text-xs text-zinc-700 dark:text-zinc-300 leading-relaxed">
-                      All registered undergraduate students are bound by the regulations codified herein. Continuous Internal Assessment (CIA) accounts for 40% of overall course evaluation, comprising class tests, laboratory assignments, and viva-voce examinations.
-                    </p>
+                {activePageData ? (
+                  <div className="space-y-3 whitespace-pre-wrap">
+                    {activePageData.section && (
+                      <h3 className="font-sans font-bold text-sm text-zinc-900 dark:text-zinc-100 border-l-2 border-accent pl-2">
+                        {activePageData.section}
+                      </h3>
+                    )}
+                    <p className="leading-relaxed">{activePageData.text}</p>
                   </div>
+                ) : (
+                  <div className="py-12 text-center text-zinc-400 font-sans space-y-2">
+                    <p>No clean text extracted for this page.</p>
+                    <p className="text-[11px]">The original PDF is stored intact in MinIO storage.</p>
+                  </div>
+                )}
 
-                  <p>
-                    A minimum of 75% physical attendance across lecture and laboratory sessions registered during the active semester is mandatory for eligibility to appear in the End-Semester Examination. In cases of certified medical emergencies, the Dean of Student Welfare may condone shortages up to 10%, subject to formal hospital discharge certificates.
-                  </p>
-
-                  <p>
-                    Degree classification adheres strictly to the Cumulative Grade Point Average (CGPA) on a 10.0 scale: First Class with Distinction requires a minimum CGPA of 8.0 without backlogs; First Class requires 6.5; and the minimum graduation threshold is 6.0.
-                  </p>
-
-                  <p>
-                    Re-evaluation petitions for theory answer books must be registered within 14 calendar days from the official date of declaration of results. The fee of Rs. 500 per theoretical paper applies.
-                  </p>
-                </div>
-
-                <div className="pt-8 border-t border-zinc-100 dark:border-zinc-800 flex items-center justify-between font-sans text-[10px] text-zinc-400">
-                  <span>University Academic Senate</span>
-                  <span>Page {currentPage} of {totalPages}</span>
+                <div className="border-t border-zinc-100 dark:border-zinc-850 pt-3 text-center text-[10px] font-sans text-zinc-400">
+                  Official University Ordinance Document Record · Retrieved from MinIO Object Storage
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Right Sidebar: Ingestion & Vector Metadata (W-08) */}
-          <aside className="w-80 border-l border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-5 overflow-y-auto space-y-6 shrink-0 hidden lg:block">
+          {/* Right Metadata Inspector Sidebar */}
+          <div className="w-80 border-l border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-5 overflow-y-auto space-y-5 text-xs hidden lg:block shrink-0">
             <div>
-              <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-900 dark:text-zinc-100 flex items-center gap-2 mb-3">
-                <Database className="w-4 h-4 text-accent" />
-                Storage & Metadata
+              <h3 className="font-bold text-xs uppercase tracking-wider text-zinc-400 mb-3">
+                Ingestion Provenance
               </h3>
-
-              <div className="space-y-3 text-xs">
-                <div>
-                  <span className="text-[10px] text-zinc-400 block font-medium">MinIO S3 Storage Path</span>
-                  <code className="text-[11px] text-zinc-800 dark:text-zinc-200 font-mono break-all">
-                    university-documents/documents/{doc.id}/{doc.filename}
-                  </code>
+              <div className="space-y-3">
+                <div className="p-3 rounded-lg bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 space-y-1">
+                  <div className="text-[10px] text-zinc-400 flex items-center gap-1 uppercase font-semibold">
+                    <HardDrive className="w-3 h-3 text-accent" />
+                    Storage Location
+                  </div>
+                  <div className="font-mono text-[11px] text-zinc-800 dark:text-zinc-200 break-all">
+                    {document.storage_path}
+                  </div>
                 </div>
 
-                <div>
-                  <span className="text-[10px] text-zinc-400 block font-medium">Qdrant Vector Points</span>
-                  <span className="text-zinc-800 dark:text-zinc-200 font-semibold">
-                    {doc.chunkCount} vectors (dim 384, Cosine)
-                  </span>
+                <div className="p-3 rounded-lg bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 space-y-1">
+                  <div className="text-[10px] text-zinc-400 flex items-center gap-1 uppercase font-semibold">
+                    <Database className="w-3 h-3 text-accent" />
+                    PostgreSQL Record ID
+                  </div>
+                  <div className="font-mono text-[11px] text-zinc-800 dark:text-zinc-200">
+                    {document.id}
+                  </div>
                 </div>
 
-                <div>
-                  <span className="text-[10px] text-zinc-400 block font-medium">Ingestion Pipeline</span>
-                  <span className="text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-1">
-                    <ShieldCheck className="w-3.5 h-3.5" />
-                    PyMuPDF + LangChain Recursive Splitter
-                  </span>
-                </div>
-
-                <div>
-                  <span className="text-[10px] text-zinc-400 block font-medium">Uploaded By</span>
-                  <span className="text-zinc-800 dark:text-zinc-200">{doc.uploadedBy}</span>
-                </div>
-
-                <div>
-                  <span className="text-[10px] text-zinc-400 block font-medium">Last Synchronized</span>
-                  <span className="text-zinc-800 dark:text-zinc-200">{formatDate(doc.updatedAt)}</span>
-                </div>
-
-                <div>
-                  <span className="text-[10px] text-zinc-400 block font-medium">SHA-256 Checksum</span>
-                  <code className="text-[10px] font-mono text-zinc-500 break-all">
-                    e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
-                  </code>
+                <div className="p-3 rounded-lg bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 space-y-1">
+                  <div className="text-[10px] text-zinc-400 flex items-center gap-1 uppercase font-semibold">
+                    <Layers className="w-3 h-3 text-accent" />
+                    Indexed Vector Chunks
+                  </div>
+                  <div className="text-zinc-800 dark:text-zinc-200 font-bold">
+                    {chunks.length} chunks registered in Qdrant
+                  </div>
                 </div>
               </div>
             </div>
 
-            <div className="pt-4 border-t border-zinc-200 dark:border-zinc-800 space-y-2">
-              <Link
-                href="/citations"
-                className="w-full py-2 px-3 rounded-md border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-900 text-xs font-medium text-zinc-700 dark:text-zinc-300 transition flex items-center justify-center gap-1.5"
-              >
-                <Layers className="w-3.5 h-3.5 text-accent" />
-                View Document Citations (W-09)
-              </Link>
+            {/* Chunk List Breakdown */}
+            {chunks.length > 0 && (
+              <div>
+                <h3 className="font-bold text-xs uppercase tracking-wider text-zinc-400 mb-2">
+                  Chunk Coordinates ({chunks.length})
+                </h3>
+                <div className="max-h-56 overflow-y-auto space-y-1.5 pr-1">
+                  {chunks.map((chk) => (
+                    <div
+                      key={chk.id}
+                      className="p-2 rounded bg-zinc-50 dark:bg-zinc-900 border border-zinc-100 dark:border-zinc-850 text-[11px] flex items-center justify-between"
+                    >
+                      <span>
+                        Chunk #{chk.chunk_index} {chk.page ? `(Page ${chk.page})` : ""}
+                      </span>
+                      <span className="font-mono text-[10px] text-zinc-400">
+                        {chk.vector_id.slice(0, 8)}...
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="p-3 rounded-lg bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 text-[11px] text-emerald-800 dark:text-emerald-300 flex items-start gap-2">
+              <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+              <span>
+                Deterministic provenance verified. This document serves as ground truth for LLM answers.
+              </span>
             </div>
-          </aside>
+          </div>
         </div>
       </div>
     </AppShell>
