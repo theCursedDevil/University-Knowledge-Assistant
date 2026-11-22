@@ -279,8 +279,35 @@ The user interface follows a minimal black, white, and grey aesthetic with a sub
 - **S-4 Error State:** Structured error banners with actionable recovery options.
 - **S-5 Permission Denied:** Admin-only barrier preventing unauthorized student/faculty access.
 
+### Keycloak OAuth 2.0 / OIDC & PKCE Setup (Phase 8)
+
+The application integrates self-hosted Keycloak 24+ for OpenID Connect authentication with Authorization Code Flow + PKCE (`S256`), RS256 JWT signature verification against JWKS (`/protocol/openid-connect/certs`), Just-In-Time (JIT) PostgreSQL user provisioning, and role-based access control (RBAC).
+
+#### 1. Starting Keycloak
+```bash
+docker run -d --name keycloak -p 8080:8080 \
+  -e KEYCLOAK_ADMIN=admin \
+  -e KEYCLOAK_ADMIN_PASSWORD=admin \
+  -v $(pwd)/docker/keycloak:/opt/keycloak/data/import \
+  quay.io/keycloak/keycloak:24.0.5 start-dev --import-realm
+```
+The realm configuration is automatically imported from `docker/keycloak/university-realm.json`.
+
+#### 2. Default Seed Accounts
+| Username | Password | Email | Assigned Role | Capabilities |
+|---|---|---|:---:|---|
+| `admin` | `AdminPassword123!` | `admin@university.edu` | **admin** | Full catalog upload, metadata editing, cascading delete, analytics, audit logs |
+| `faculty` | `FacultyPassword123!` | `faculty@university.edu` | **faculty** | Chat, conversation history, document preview, citation exploration |
+| `student` | `StudentPassword123!` | `student@university.edu` | **student** | Chat, conversation history, document search, regulations queries |
+
+#### 3. Security Architecture
+- **PKCE (`S256`):** Cryptographic `code_verifier` and SHA-256 `code_challenge` prevent authorization code interception attacks.
+- **Token Storage:** Tokens are **never stored in `localStorage`**. The backend sets secure, `httpOnly`, `SameSite=Lax` cookies (`uka_access_token`, `uka_refresh_token`).
+- **Signature & Claims:** FastAPI verifies RS256 signatures via PyJWT `PyJWKClient`, enforcing `exp` (expiration) and `iss` (issuer: `http://localhost:8080/realms/university-realm`).
+- **Token Rotation & Revocation:** Session renewal via `POST /auth/refresh` and complete Keycloak session revocation via `POST /auth/logout`.
+
 ### Running Backend Tests
-Execute the automated test suite using `pytest`:
+Execute the automated test suite (102 tests) using `pytest`:
 ```bash
 PYTHONPATH=. pytest backend/tests -v
 ```

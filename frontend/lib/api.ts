@@ -151,6 +151,7 @@ export async function fetchCurrentUser(role?: string, email?: string): Promise<A
   const headers = getAuthHeaders(role, email);
   const res = await fetch(`${API_BASE_URL}/me`, {
     headers: { ...headers, "Content-Type": "application/json" },
+    credentials: "include",
     cache: "no-store",
   });
   if (!res.ok) {
@@ -163,6 +164,7 @@ export async function loginUser(email: string, role: string, name?: string): Pro
   const res = await fetch(`${API_BASE_URL}/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
+    credentials: "include",
     body: JSON.stringify({ email, role, name }),
   });
   if (!res.ok) {
@@ -530,6 +532,7 @@ export async function updateAdminUserRole(userId: string, role: string): Promise
   const res = await fetch(`${API_BASE_URL}/admin/users/${userId}/role`, {
     method: "PATCH",
     headers: { ...headers, "Content-Type": "application/json" },
+    credentials: "include",
     body: JSON.stringify({ role }),
   });
   if (!res.ok) {
@@ -537,4 +540,69 @@ export async function updateAdminUserRole(userId: string, role: string): Promise
     throw new Error(errBody?.error?.message || `Failed to update user role: HTTP ${res.status}`);
   }
   return res.json();
+}
+
+// ---------------------------------------------------------------------------
+// 7. Keycloak OAuth 2.0 / OIDC & PKCE APIs (Phase 8, FR-AUTH)
+// ---------------------------------------------------------------------------
+
+export interface KeycloakConfig {
+  keycloak_url: string;
+  realm: string;
+  client_id: string;
+}
+
+export async function fetchKeycloakConfig(): Promise<KeycloakConfig> {
+  const res = await fetch(`${API_BASE_URL}/auth/config`, {
+    cache: "no-store",
+    credentials: "include",
+  });
+  if (!res.ok) {
+    throw new Error("Failed to load Keycloak configuration");
+  }
+  return res.json();
+}
+
+export async function exchangeAuthCode(
+  code: string,
+  codeVerifier: string,
+  redirectUri: string
+): Promise<{ user: ApiUser; access_token: string }> {
+  const res = await fetch(`${API_BASE_URL}/auth/token`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({
+      code,
+      code_verifier: codeVerifier,
+      redirect_uri: redirectUri,
+    }),
+  });
+  if (!res.ok) {
+    const errBody = await res.json().catch(() => ({}));
+    throw new Error(errBody?.error?.message || errBody?.detail || "Authorization code exchange failed");
+  }
+  return res.json();
+}
+
+export async function refreshAuthSession(): Promise<{ user: ApiUser; access_token: string }> {
+  const res = await fetch(`${API_BASE_URL}/auth/refresh`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({}),
+  });
+  if (!res.ok) {
+    throw new Error("Failed to refresh session");
+  }
+  return res.json();
+}
+
+export async function logoutBackend(): Promise<void> {
+  await fetch(`${API_BASE_URL}/auth/logout`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({}),
+  }).catch(() => {});
 }

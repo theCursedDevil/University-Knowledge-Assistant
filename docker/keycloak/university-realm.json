@@ -1,0 +1,137 @@
+{
+  "realm": "university-realm",
+  "displayName": "University Knowledge Assistant",
+  "enabled": true,
+  "sslRequired": "external",
+  "registrationAllowed": true,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": true,
+  "editUsernameAllowed": false,
+  "accessTokenLifespan": 1800,
+  "ssoSessionIdleTimeout": 3600,
+  "ssoSessionMaxLifespan": 7200,
+  "roles": {
+    "realm": [
+      {
+        "id": "role-admin-id",
+        "name": "admin",
+        "description": "University System Administrator with full catalog and system management rights",
+        "composite": false,
+        "clientRole": false
+      },
+      {
+        "id": "role-faculty-id",
+        "name": "faculty",
+        "description": "University Faculty Member with research and curriculum document access",
+        "composite": false,
+        "clientRole": false
+      },
+      {
+        "id": "role-student-id",
+        "name": "student",
+        "description": "Enrolled University Student with general inquiry and catalog access",
+        "composite": false,
+        "clientRole": false
+      }
+    ]
+  },
+  "defaultRoles": [
+    "student"
+  ],
+  "clients": [
+    {
+      "clientId": "university-assistant-client",
+      "name": "University Knowledge Assistant Web Application",
+      "description": "Next.js Frontend & FastAPI Backend Client with PKCE enabled",
+      "enabled": true,
+      "clientAuthenticatorType": "client-secret",
+      "redirectUris": [
+        "http://localhost:3000/*",
+        "http://127.0.0.1:3000/*",
+        "http://localhost:8000/*",
+        "http://127.0.0.1:8000/*"
+      ],
+      "webOrigins": [
+        "*"
+      ],
+      "publicClient": true,
+      "protocol": "openid-connect",
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": false,
+      "fullScopeAllowed": true,
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "http://localhost:3000/*##http://localhost:8000/*"
+      },
+      "defaultClientScopes": [
+        "web-origins",
+        "acr",
+        "roles",
+        "profile",
+        "email"
+      ]
+    }
+  ],
+  "users": [
+    {
+      "id": "user-admin-uuid-001",
+      "username": "admin",
+      "email": "admin@university.edu",
+      "firstName": "System",
+      "lastName": "Admin",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "AdminPassword123!",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "admin"
+      ]
+    },
+    {
+      "id": "user-faculty-uuid-002",
+      "username": "faculty",
+      "email": "faculty@university.edu",
+      "firstName": "Prof",
+      "lastName": "Sharma",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "FacultyPassword123!",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "faculty"
+      ]
+    },
+    {
+      "id": "user-student-uuid-003",
+      "username": "student",
+      "email": "student@university.edu",
+      "firstName": "Aashu",
+      "lastName": "Kumar",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "StudentPassword123!",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "student"
+      ]
+    }
+  ]
+}
