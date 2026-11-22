@@ -11,12 +11,12 @@
 
 | Metric | Status | Details |
 |---|:---:|---|
-| **Current Phase** | **Phase 9 (Database Synchronization, Read-Your-Own-Writes & Optimistic Locking)** | Completed: PostgreSQL 16 multi-replica architecture with 1 primary database and 2 read standbys using WAL streaming replication (`UKA-10`, `UKA-40`), round-robin `ReplicaRouter`, primary-only write routing, read balancing, connection health probes, graceful fallback, read-your-own-writes session window routing to Primary (`UKA-41`), and atomic optimistic concurrency control on document metadata updates with HTTP 409 Conflict (`UKA-41`). |
-| **Completed Phases** | **Phases 1, 2, 3, 4, 5, 6, 7, 8 & 9** | Planning, Git/JIRA Setup, Backend Skeleton, PostgreSQL Schema, Document Pipeline, Core RAG, Citations, Conversational Frontend, Full End-to-End Integration, Keycloak OAuth 2.0 / OIDC, Role-Restricted Documents, Security Hardening, PostgreSQL Multi-Replica Streaming Replication, and Database Synchronization Fixes (`UKA-16` through `UKA-41`). |
+| **Current Phase** | **Phase 9 (Database Synchronization, Read-Your-Own-Writes, Optimistic Locking & Redis Caching/Locking)** | Completed: PostgreSQL 16 multi-replica architecture with 1 primary database and 2 read standbys using WAL streaming replication (`UKA-10`, `UKA-40`), round-robin `ReplicaRouter`, primary-only write routing, read balancing, connection health probes, graceful fallback, read-your-own-writes session window routing to Primary (`UKA-41`), atomic optimistic concurrency control on document metadata updates (`UKA-41`), and Redis read-through caching and distributed locking (`UKA-11`, `UKA-42`). |
+| **Completed Phases** | **Phases 1, 2, 3, 4, 5, 6, 7, 8 & 9** | Planning, Git/JIRA Setup, Backend Skeleton, PostgreSQL Schema, Document Pipeline, Core RAG, Citations, Conversational Frontend, Full End-to-End Integration, Keycloak OAuth 2.0 / OIDC, Role-Restricted Documents, Security Hardening, PostgreSQL Multi-Replica Streaming Replication, Database Synchronization Fixes, and Redis Caching & Distributed Locking (`UKA-16` through `UKA-42`). |
 | **Pending Phases** | **Phases 10–14** | Full Docker Compose 9-service production stack, K8s manifests, CI/CD pipeline, and demo scripts. |
 | **Blocked Items** | **None** | All integrations (GitHub MCP, JIRA TWG, MinIO, PostgreSQL Primary + 2 Standbys, Redis 7, Qdrant, Keycloak, Groq LLM, Next.js 14, SSE Streaming) verified and operational. |
-| **Active JIRA Board** | [`UKA`](https://nightbladeninja.atlassian.net/jira/software/projects/UKA/boards) | 14 Epics created; 18 frontend screens connected; 133 backend tests + 20 frontend routes verified. |
-| **Latest Test Status** | **PASSED** | 133/133 backend tests passing + Next.js production build (`20/20` static/dynamic routes) passing. |
+| **Active JIRA Board** | [`UKA`](https://nightbladeninja.atlassian.net/jira/software/projects/UKA/boards) | 14 Epics created; 18 frontend screens connected; 147 backend tests + 20 frontend routes verified. |
+| **Latest Test Status** | **PASSED** | 147/147 backend tests passing + Next.js production build (`20/20` static/dynamic routes) passing. |
 
 ---
 
@@ -56,7 +56,7 @@
 | `UKA-8` | `[EPIC 7] Authentication and User Management` | Phase 8 | ✅ **Done** |
 | `UKA-9` | `[EPIC 8] Admin Console` | Phases 5, 7 | ✅ **Done** |
 | `UKA-10` | `[EPIC 9] Database Synchronization` | Phase 9 | ✅ **Done** |
-| `UKA-11` | `[EPIC 10] Redis Caching and Locking` | Phase 9 | To Do |
+| `UKA-11` | `[EPIC 10] Redis Caching and Locking` | Phase 9 | ✅ **Done** |
 | `UKA-12` | `[EPIC 11] Dockerization` | Phase 10 | To Do |
 | `UKA-13` | `[EPIC 12] Kubernetes Deployment` | Phase 11 | To Do |
 | `UKA-14` | `[EPIC 13] CI/CD` | Phase 12 | To Do |
@@ -92,6 +92,7 @@
 | `UKA-39` | System Security Hardening: Rate Limiting, Security Headers, CORS, and Least-Privilege DB Accounts | `UKA-8` | Must Have | ✅ **Done** |
 | `UKA-40` | PostgreSQL Primary and Two Read Replicas with Round-Robin ReplicaRouter | `UKA-10` | Must Have | ✅ **Done** |
 | `UKA-41` | Read-After-Write Consistency and Optimistic Locking | `UKA-10` | Must Have | ✅ **Done** |
+| `UKA-42` | Redis Caching and Distributed Locking Integration | `UKA-11` | Should Have | ✅ **Done** |
 
 ---
 
