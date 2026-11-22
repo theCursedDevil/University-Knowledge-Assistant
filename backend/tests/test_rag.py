@@ -14,14 +14,11 @@ import pytest
 from fastapi.testclient import TestClient
 
 from backend.app.core.config import get_settings
-from backend.app.rag.vector_store import SearchResult, vector_store
+from backend.app.rag.vector_store import SearchResult
 from backend.app.rag.prompt import (
     build_rag_prompt,
-    format_retrieved_context,
-    format_conversation_history,
-    SYSTEM_INSTRUCTION_TEMPLATE,
 )
-from backend.app.rag.retriever import vector_retriever, RetrievalResult
+from backend.app.rag.retriever import vector_retriever
 from backend.app.rag.rag_service import rag_service
 from backend.tests.test_pipeline import generate_test_pdf
 

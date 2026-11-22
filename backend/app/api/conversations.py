@@ -10,7 +10,7 @@ Endpoints:
 import json
 import uuid
 from datetime import datetime, timezone
-from typing import List, Optional, Any, Union
+from typing import List, Optional, Any
 from fastapi import APIRouter, Depends, status, Query, Request, Response
 from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel, Field
@@ -18,7 +18,7 @@ from sqlalchemy import select, case
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.core.auth_dev import get_current_user
-from backend.app.core.errors import NotFoundError, ForbiddenError
+from backend.app.core.errors import NotFoundError, ForbiddenError, ValidationError
 from backend.app.core.logging import logger
 from backend.app.db.session import get_db, get_read_db, AsyncSessionLocal, replica_router
 from backend.app.db.models import User, Conversation, Message

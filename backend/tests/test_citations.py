@@ -17,10 +17,9 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
-from backend.app.db.models import Document, DocumentChunkMeta
+from backend.app.db.models import DocumentChunkMeta
 from backend.app.rag.vector_store import SearchResult
-from backend.app.rag.citation import citation_resolver, Citation
-from backend.app.rag.rag_service import rag_service
+from backend.app.rag.citation import citation_resolver
 from backend.tests.test_pipeline import generate_test_pdf
 
 

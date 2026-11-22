@@ -5,7 +5,7 @@ Provides strongly typed access to core, database, external services, and securit
 """
 
 from functools import lru_cache
-from typing import List, Optional, Union, Any
+from typing import Optional, Any
 import json
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict

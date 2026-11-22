@@ -32,7 +32,6 @@ from backend.app.core.errors import (
     NotFoundError,
     ValidationError,
     ConflictError,
-    LockContentionError,
 )
 from backend.app.core.logging import logger
 from backend.app.core.cache import cache_client, async_distributed_lock

@@ -1,0 +1,19 @@
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W"]
+ignore = [
+    "E501",  # line length handled by formatter
+    "E402",  # module level import not at top of file
+]
+
+[tool.ruff.lint.per-file-ignores]
+"backend/tests/*" = ["F841"]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["backend/tests"]
+pythonpath = ["."]
+asyncio_mode = "strict"

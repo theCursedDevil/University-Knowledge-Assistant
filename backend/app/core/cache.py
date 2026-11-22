@@ -12,7 +12,7 @@ import time
 import uuid
 import asyncio
 import threading
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 from contextlib import contextmanager, asynccontextmanager
 
 from backend.app.core.config import get_settings

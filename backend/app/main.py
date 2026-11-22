@@ -68,7 +68,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     # 2. Verify Redis cache & locking client connectivity (C-CACHE)
     try:
-        from backend.app.core.cache import cache_client, redis_manager
+        from backend.app.core.cache import redis_manager
         if redis_manager.is_healthy():
             logger.info("Connected to Redis cache at %s:%s (db=%s).", settings.REDIS_HOST, settings.REDIS_PORT, settings.REDIS_DB)
         else:

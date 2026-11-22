@@ -9,14 +9,9 @@ Verifies:
 
 import io
 import uuid
-import pytest
 from starlette.testclient import TestClient
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.app.core.config import Settings
 from backend.app.services.storage import storage_service
-from backend.app.db.models import Document, AuditLog
 
 SAMPLE_PDF_BYTES = b"%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF"
 

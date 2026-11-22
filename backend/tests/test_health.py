@@ -9,10 +9,8 @@ from pydantic import BaseModel, Field
 
 from backend.app.core.config import Settings
 from backend.app.core.errors import (
-    AppException,
     ConflictError,
     ForbiddenError,
-    NotFoundError,
     UnauthorizedError,
     ValidationError,
     ExternalServiceError,

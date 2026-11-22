@@ -147,7 +147,7 @@ export function PermissionDeniedState({
       <h2 className="text-xl font-bold text-zinc-900 dark:text-zinc-100">Permission Denied (HTTP 403)</h2>
       <p className="text-sm text-zinc-500 dark:text-zinc-400 max-w-md mt-2 mb-6">
         This area requires <span className="font-semibold text-zinc-700 dark:text-zinc-300 capitalize">{requiredRole}</span> privileges.
-        Your current role is <span className="font-semibold text-zinc-700 dark:text-zinc-300 capitalize">"{role}"</span>.
+        Your current role is <span className="font-semibold text-zinc-700 dark:text-zinc-300 capitalize">&quot;{role}&quot;</span>.
       </p>
 
       <div className="flex flex-wrap items-center justify-center gap-3">

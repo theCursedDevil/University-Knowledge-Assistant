@@ -15,13 +15,12 @@ Verifies:
 
 import json
 import uuid
-from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
-from backend.app.db.models import Conversation, Message, User
+from backend.app.db.models import Conversation
 from backend.app.rag.citation import Citation
 from backend.app.rag.rag_service import RAGResponse
 
