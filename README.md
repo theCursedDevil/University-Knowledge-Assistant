@@ -313,16 +313,39 @@ PYTHONPATH=. pytest backend/tests -v
 ```
 
 ### Running the Full Stack (Docker Compose)
-Bring up the entire local infrastructure via Docker Compose:
+
+The entire application stack (all 9 services) can be launched from a clean checkout with a single command:
+
 ```bash
-docker-compose up -d
+# 1. Copy the environment configuration template
+cp .env.example .env
+
+# 2. Add your Groq API key in .env (or Gemini API key)
+# GROQ_API_KEY=your_groq_api_key_here
+
+# 3. Build and launch all 9 containerized services
+docker compose up --build -d
 ```
-The services will be available at:
-- **Frontend Chat UI:** `http://localhost:3000`
-- **FastAPI Backend Docs:** `http://localhost:8000/docs`
-- **Keycloak Auth Console:** `http://localhost:8080`
-- **Qdrant Vector Dashboard:** `http://localhost:6333/dashboard`
-- **MinIO Storage Console:** `http://localhost:9001`
+
+#### Services & Ports:
+| Service | Container Name | Image / Build | Port | Health Check | Description |
+|---|---|---|---|---|---|
+| **Frontend** | `uka-frontend` | `docker/frontend.Dockerfile` (Multi-stage Node 20) | `3000` | `curl http://localhost:3000/login` | Next.js 14 Standalone UI |
+| **Backend** | `uka-backend` | `docker/backend.Dockerfile` (Multi-stage Python 3.12) | `8000` | `curl http://localhost:8000/health` | FastAPI REST API (C-API) |
+| **PostgreSQL Primary** | `postgres-primary` | `postgres:16-alpine` | `5432` | `pg_isready` | Primary Read-Write database & WAL sender |
+| **PostgreSQL Replica 1** | `postgres-replica-1` | `postgres:16-alpine` | `5433` | `pg_isready` | Physical streaming read replica 1 |
+| **PostgreSQL Replica 2** | `postgres-replica-2` | `postgres:16-alpine` | `5434` | `pg_isready` | Physical streaming read replica 2 |
+| **Redis** | `redis` | `redis:7-alpine` | `6379` | `redis-cli ping` | In-memory cache & distributed locking |
+| **Qdrant** | `qdrant` | `qdrant/qdrant:latest` | `6333`, `6334` | TCP probe (`6333`) | Vector database (384d Cosine Index) |
+| **MinIO** | `minio` | `cgr.dev/chainguard/minio` | `9000`, `9001` | `mc ready local` | S3-compatible raw PDF storage |
+| **Keycloak** | `keycloak` | `quay.io/keycloak/keycloak:24.0.5` | `8080` | TCP probe (`8080`) | OAuth 2.0 / OIDC Identity Provider |
+
+#### Stack Health Verification:
+Check the health status of all running containers:
+```bash
+docker compose ps
+```
+All stateful services utilize named Docker volumes (`postgres_primary_data`, `postgres_replica_1_data`, `postgres_replica_2_data`, `redis_data`, `qdrant_data`, `minio_data`) and communicate over an isolated internal bridge network (`uka-network`). Backend migrations (`alembic upgrade head`) are run automatically on container startup.
 
 ---
 

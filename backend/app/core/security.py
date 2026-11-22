@@ -63,11 +63,17 @@ class KeycloakTokenValidator:
         """
         try:
             signing_key = self.jwks_client.get_signing_key_from_jwt(token)
+            valid_issuers = list({
+                self.issuer,
+                f"http://localhost:8080/realms/{self.realm}",
+                f"http://keycloak:8080/realms/{self.realm}",
+                f"http://127.0.0.1:8080/realms/{self.realm}",
+            })
             payload = jwt.decode(
                 token,
                 signing_key.key,
                 algorithms=["RS256"],
-                issuer=self.issuer,
+                issuer=valid_issuers,
                 options={
                     "verify_signature": True,
                     "verify_exp": True,

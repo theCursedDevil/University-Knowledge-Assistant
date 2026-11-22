@@ -1,4 +1,23 @@
+# ==============================================================================
+# Generative AI-Based University Knowledge Assistant — Unified Docker Compose
+# Fully Containerized 9-Service Stack
+#
+# Services:
+#   1. postgres-primary   : PostgreSQL 16 Primary (Read-Write + WAL Sender)
+#   2. postgres-replica-1 : PostgreSQL 16 Read Replica 1 (Hot Standby)
+#   3. postgres-replica-2 : PostgreSQL 16 Read Replica 2 (Hot Standby)
+#   4. redis              : Redis 7 In-Memory Cache & Distributed Locking
+#   5. qdrant             : Qdrant Vector Database
+#   6. minio              : MinIO Object Storage (S3-compatible)
+#   7. keycloak           : Keycloak IAM (OAuth 2.0 / OIDC Identity Provider)
+#   8. backend            : FastAPI Application (C-API)
+#   9. frontend           : Next.js 14 Application (C-FE)
+# ==============================================================================
+
 services:
+  # ----------------------------------------------------------------------------
+  # 1. PostgreSQL 16 Primary (Read-Write)
+  # ----------------------------------------------------------------------------
   postgres-primary:
     image: postgres:16-alpine
     container_name: postgres-primary
@@ -27,6 +46,9 @@ services:
     networks:
       - uka-network
 
+  # ----------------------------------------------------------------------------
+  # 2. PostgreSQL 16 Read Replica 1 (Hot Standby)
+  # ----------------------------------------------------------------------------
   postgres-replica-1:
     image: postgres:16-alpine
     container_name: postgres-replica-1
@@ -54,6 +76,9 @@ services:
     networks:
       - uka-network
 
+  # ----------------------------------------------------------------------------
+  # 3. PostgreSQL 16 Read Replica 2 (Hot Standby)
+  # ----------------------------------------------------------------------------
   postgres-replica-2:
     image: postgres:16-alpine
     container_name: postgres-replica-2
@@ -81,11 +106,16 @@ services:
     networks:
       - uka-network
 
+  # ----------------------------------------------------------------------------
+  # 4. Redis In-Memory Cache & Distributed Locking
+  # ----------------------------------------------------------------------------
   redis:
     image: redis:7-alpine
     container_name: redis
     ports:
       - "6379:6379"
+    volumes:
+      - redis_data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -94,47 +124,182 @@ services:
     networks:
       - uka-network
 
+  # ----------------------------------------------------------------------------
+  # 5. Qdrant Vector Database
+  # ----------------------------------------------------------------------------
   qdrant:
     image: qdrant/qdrant:latest
     container_name: qdrant
     ports:
       - "6333:6333"
       - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/6333'"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
     networks:
       - uka-network
 
+  # ----------------------------------------------------------------------------
+  # 6. MinIO Object Storage
+  # ----------------------------------------------------------------------------
   minio:
     image: cgr.dev/chainguard/minio
     container_name: minio
     command: server /data --console-address ":9001"
     environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
     ports:
       - "9000:9000"
       - "9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
     networks:
       - uka-network
 
+  # ----------------------------------------------------------------------------
+  # 7. Keycloak Identity Provider (OAuth 2.0 / OIDC)
+  # ----------------------------------------------------------------------------
   keycloak:
     image: quay.io/keycloak/keycloak:24.0.5
     container_name: keycloak
     command: start-dev --import-realm
     environment:
-      KEYCLOAK_ADMIN: admin
-      KEYCLOAK_ADMIN_PASSWORD: admin
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-admin}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
     volumes:
       - ./docker/keycloak/university-realm.json:/opt/keycloak/data/import/university-realm.json:ro
     ports:
       - "8080:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/8080'"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+      start_period: 25s
     networks:
       - uka-network
 
+  # ----------------------------------------------------------------------------
+  # 8. FastAPI Backend Application (C-API)
+  # ----------------------------------------------------------------------------
+  backend:
+    build:
+      context: .
+      dockerfile: docker/backend.Dockerfile
+    container_name: uka-backend
+    environment:
+      ENVIRONMENT: production
+      DEBUG: "false"
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      CORS_ORIGINS: '["http://localhost:3000","http://127.0.0.1:3000","http://frontend:3000"]'
+      POSTGRES_HOST: postgres-primary
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-university_assistant}
+      POSTGRES_REPLICA1_HOST: postgres-replica-1
+      POSTGRES_REPLICA1_PORT: "5432"
+      POSTGRES_REPLICA2_HOST: postgres-replica-2
+      POSTGRES_REPLICA2_PORT: "5432"
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      QDRANT_HOST: qdrant
+      QDRANT_PORT: "6333"
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      MINIO_SECURE: "false"
+      MINIO_BUCKET_NAME: ${MINIO_BUCKET_NAME:-university-documents}
+      KEYCLOAK_URL: http://keycloak:8080
+      KEYCLOAK_REALM: university-realm
+      KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-university-assistant-client}
+      KEYCLOAK_CLIENT_SECRET: ${KEYCLOAK_CLIENT_SECRET:-}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres-primary:
+        condition: service_healthy
+      postgres-replica-1:
+        condition: service_healthy
+      postgres-replica-2:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - uka-network
+
+  # ----------------------------------------------------------------------------
+  # 9. Next.js 14 Frontend Application (C-FE)
+  # ----------------------------------------------------------------------------
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/frontend.Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+        NEXT_PUBLIC_KEYCLOAK_URL: ${NEXT_PUBLIC_KEYCLOAK_URL:-http://localhost:8080}
+        NEXT_PUBLIC_KEYCLOAK_REALM: ${NEXT_PUBLIC_KEYCLOAK_REALM:-university-realm}
+        NEXT_PUBLIC_KEYCLOAK_CLIENT_ID: ${NEXT_PUBLIC_KEYCLOAK_CLIENT_ID:-university-assistant-client}
+    container_name: uka-frontend
+    environment:
+      PORT: "3000"
+      HOSTNAME: "0.0.0.0"
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+      NEXT_PUBLIC_KEYCLOAK_URL: ${NEXT_PUBLIC_KEYCLOAK_URL:-http://localhost:8080}
+      NEXT_PUBLIC_KEYCLOAK_REALM: ${NEXT_PUBLIC_KEYCLOAK_REALM:-university-realm}
+      NEXT_PUBLIC_KEYCLOAK_CLIENT_ID: ${NEXT_PUBLIC_KEYCLOAK_CLIENT_ID:-university-assistant-client}
+    ports:
+      - "3000:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/login"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      - uka-network
+
+# ------------------------------------------------------------------------------
+# Named Persistent Storage Volumes
+# ------------------------------------------------------------------------------
 volumes:
   postgres_primary_data:
   postgres_replica_1_data:
   postgres_replica_2_data:
+  redis_data:
+  qdrant_data:
+  minio_data:
 
+# ------------------------------------------------------------------------------
+# Dedicated Internal Bridge Network
+# ------------------------------------------------------------------------------
 networks:
   uka-network:
     name: uka-network

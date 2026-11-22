@@ -64,6 +64,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     except Exception as exc:
         logger.warning("Redis initialization check deferred: %s", exc)
 
+    # 3. Verify MinIO knowledge storage bucket exists (C-DOCSVC)
+    try:
+        from backend.app.services.storage import storage_service
+        storage_service.ensure_bucket_exists()
+        logger.info("MinIO storage bucket '%s' verified.", settings.MINIO_BUCKET_NAME)
+    except Exception as exc:
+        logger.warning("MinIO bucket initialization deferred: %s", exc)
+
     yield
     logger.info("Shutting down %s", settings.PROJECT_NAME)
 

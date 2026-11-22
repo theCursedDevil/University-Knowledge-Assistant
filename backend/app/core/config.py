@@ -5,7 +5,8 @@ Provides strongly typed access to core, database, external services, and securit
 """
 
 from functools import lru_cache
-from typing import List, Optional
+from typing import List, Optional, Union, Any
+import json
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -57,7 +58,7 @@ class Settings(BaseSettings):
     )
 
     # CORS Settings
-    CORS_ORIGINS: List[str] = Field(
+    CORS_ORIGINS: Any = Field(
         default=["http://localhost:3000", "http://127.0.0.1:3000"],
         description="Allowed origins for Cross-Origin Resource Sharing.",
     )
@@ -65,9 +66,17 @@ class Settings(BaseSettings):
     @field_validator("CORS_ORIGINS", mode="before")
     @classmethod
     def parse_cors_origins(cls, v):
-        """Allows CORS_ORIGINS to be provided as a comma-separated string or list."""
+        """Allows CORS_ORIGINS to be provided as a comma-separated string, JSON string, or list."""
         if isinstance(v, str):
-            return [origin.strip() for origin in v.split(",") if origin.strip()]
+            v_str = v.strip()
+            if v_str.startswith("[") and v_str.endswith("]"):
+                try:
+                    parsed = json.loads(v_str)
+                    if isinstance(parsed, list):
+                        return [str(o).strip() for o in parsed if str(o).strip()]
+                except Exception:
+                    pass
+            return [origin.strip() for origin in v_str.split(",") if origin.strip()]
         if isinstance(v, (list, tuple, set)):
             return [str(origin).strip() for origin in v if str(origin).strip()]
         return v
