@@ -6,7 +6,7 @@ Provides strongly typed access to core, database, external services, and securit
 
 from functools import lru_cache
 from typing import List, Optional
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -60,6 +60,32 @@ class Settings(BaseSettings):
     CORS_ORIGINS: List[str] = Field(
         default=["http://localhost:3000", "http://127.0.0.1:3000"],
         description="Allowed origins for Cross-Origin Resource Sharing.",
+    )
+
+    @field_validator("CORS_ORIGINS", mode="before")
+    @classmethod
+    def parse_cors_origins(cls, v):
+        """Allows CORS_ORIGINS to be provided as a comma-separated string or list."""
+        if isinstance(v, str):
+            return [origin.strip() for origin in v.split(",") if origin.strip()]
+        if isinstance(v, (list, tuple, set)):
+            return [str(origin).strip() for origin in v if str(origin).strip()]
+        return v
+
+    # Rate Limiting (NFR-SEC-004)
+    RATE_LIMIT_ENABLED: bool = Field(
+        default=True,
+        description="Enforces request rate limiting on LLM/compute intensive endpoints.",
+    )
+    RATE_LIMIT_LLM_RPM: int = Field(
+        default=20,
+        description="Maximum allowed LLM requests per minute per user/IP address.",
+    )
+
+    # Cookie & HTTPS Security (NFR-SEC-001)
+    SESSION_COOKIE_SECURE: Optional[bool] = Field(
+        default=None,
+        description="Enforces HTTPS-only transmission for session cookies. If None, auto-enabled in non-dev environments.",
     )
 
     # PostgreSQL Primary (Read-Write)
@@ -125,6 +151,13 @@ class Settings(BaseSettings):
         default="I couldn't find sufficient information about this in the available university documents.",
         description="Standard fallback response when retrieval confidence is insufficient.",
     )
+
+    @property
+    def is_cookie_secure(self) -> bool:
+        """Determines whether cookies must require HTTPS transmission."""
+        if self.SESSION_COOKIE_SECURE is not None:
+            return self.SESSION_COOKIE_SECURE
+        return self.ENVIRONMENT.lower() not in ("development", "testing")
 
     @property
     def sync_database_url(self) -> str:

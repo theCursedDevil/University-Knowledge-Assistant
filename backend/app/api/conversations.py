@@ -23,6 +23,7 @@ from backend.app.core.logging import logger
 from backend.app.db.session import get_db, AsyncSessionLocal
 from backend.app.db.models import User, Conversation, Message
 from backend.app.rag.rag_service import rag_service
+from backend.app.core.rate_limit import check_llm_rate_limit
 from backend.app.rag.citation import Citation
 
 router = APIRouter(prefix="/conversations", tags=["Conversations"])
@@ -234,6 +235,7 @@ async def post_message(
     request: Request,
     stream: Optional[bool] = Query(default=None, description="Stream answer tokens via Server-Sent Events (SSE)."),
     current_user: User = Depends(get_current_user),
+    _rate_limit: None = Depends(check_llm_rate_limit),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """Executes a multi-turn conversational exchange with RAG context."""

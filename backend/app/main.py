@@ -74,7 +74,7 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    # 1. CORS Middleware
+    # 1. CORS Middleware (Restricted to Authorized Frontend Origins)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.CORS_ORIGINS,
@@ -83,7 +83,20 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    # 2. Global Exception Handlers
+    # 2. HTTP Security Headers Middleware (OWASP Secure Headers, HSTS, Permissions Policy)
+    @app.middleware("http")
+    async def security_headers_middleware(request: Request, call_next):
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+        if settings.ENVIRONMENT.lower() not in ("development", "testing"):
+            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains; preload"
+        return response
+
+    # 3. Global Exception Handlers
     @app.exception_handler(AppException)
     async def app_exception_handler(request: Request, exc: AppException) -> JSONResponse:
         logger.warning(
@@ -94,8 +107,18 @@ def create_app() -> FastAPI:
             request.url.path,
             exc.message,
         )
+        resp_headers = {}
+        if exc.status_code == 429:
+            retry_after = 60
+            if isinstance(exc.details, dict) and "retry_after" in exc.details:
+                retry_after = exc.details["retry_after"]
+            elif hasattr(exc, "retry_after"):
+                retry_after = exc.retry_after
+            resp_headers["Retry-After"] = str(retry_after)
+
         return JSONResponse(
             status_code=exc.status_code,
+            headers=resp_headers if resp_headers else None,
             content=ErrorResponse(
                 error=ErrorDetail(
                     code=exc.code,

@@ -21,8 +21,22 @@ CRITICAL SECURITY AND OPERATIONAL DIRECTIVES:
 4. CITATION CITING: Cite facts using the bracketed source labels provided (e.g. [Source 1], [Source 2]). Keep answers clear, direct, and academic."""
 
 
+def escape_xml_boundaries(text: str) -> str:
+    """Escapes XML boundary tags to prevent structural breakout prompt injection attacks (NFR-SEC-008)."""
+    return (
+        text.replace("</retrieved_context>", "&lt;/retrieved_context&gt;")
+        .replace("<retrieved_context>", "&lt;retrieved_context&gt;")
+        .replace("</source>", "&lt;/source&gt;")
+        .replace("<source", "&lt;source")
+        .replace("</user_question>", "&lt;/user_question&gt;")
+        .replace("<user_question>", "&lt;user_question&gt;")
+        .replace("</conversation_history>", "&lt;/conversation_history&gt;")
+        .replace("<conversation_history>", "&lt;conversation_history&gt;")
+    )
+
+
 def format_retrieved_context(chunks: List[SearchResult]) -> str:
-    """Formats retrieved vector search results into structured XML source blocks."""
+    """Formats retrieved vector search results into structured XML source blocks with boundary escaping."""
     if not chunks:
         return "<retrieved_context>\n<no_context>No document chunks retrieved.</no_context>\n</retrieved_context>"
 
@@ -30,9 +44,10 @@ def format_retrieved_context(chunks: List[SearchResult]) -> str:
     for idx, chunk in enumerate(chunks, start=1):
         page_attr = f' page="{chunk.page}"' if chunk.page is not None else ""
         section_attr = f' section="{chunk.section}"' if chunk.section else ""
+        safe_text = escape_xml_boundaries(chunk.chunk_text.strip())
         context_lines.append(
             f'<source index="{idx}" id="{chunk.chunk_id}" document="{chunk.document_name}"{page_attr}{section_attr}>\n'
-            f"{chunk.chunk_text.strip()}\n"
+            f"{safe_text}\n"
             f"</source>"
         )
     context_lines.append("</retrieved_context>")
@@ -72,7 +87,8 @@ def build_rag_prompt(
 
     context_block = format_retrieved_context(chunks)
     history_block = format_conversation_history(conversation_history)
-    question_block = f"<user_question>\n{question.strip()}\n</user_question>"
+    safe_question = escape_xml_boundaries(question.strip())
+    question_block = f"<user_question>\n{safe_question}\n</user_question>"
 
     user_prompt = f"{context_block}\n\n{history_block}\n\n{question_block}"
     return system_prompt, user_prompt
