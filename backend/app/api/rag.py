@@ -13,6 +13,7 @@ from backend.app.core.auth_dev import get_current_user
 from backend.app.db.session import get_db
 from backend.app.db.models import User
 from backend.app.rag.rag_service import rag_service, RAGResponse
+from backend.app.core.rate_limit import check_llm_rate_limit
 
 router = APIRouter(prefix="/rag", tags=["RAG"])
 
@@ -41,6 +42,7 @@ class RAGQueryRequest(BaseModel):
 async def query_rag(
     request: RAGQueryRequest,
     current_user: User = Depends(get_current_user),
+    _rate_limit: None = Depends(check_llm_rate_limit),
     db: AsyncSession = Depends(get_db),
 ) -> RAGResponse:
     """Executes the end-to-end RAG pipeline for the authenticated user."""

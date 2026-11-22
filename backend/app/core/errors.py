@@ -113,6 +113,24 @@ class ForbiddenError(AppException):
         )
 
 
+class RateLimitExceededError(AppException):
+    """Raised when request rate exceeds configured operational thresholds (NFR-SEC-004)."""
+
+    def __init__(
+        self,
+        message: str = "Rate limit exceeded. Please wait before retrying.",
+        details: Optional[Any] = None,
+        retry_after: int = 60,
+    ):
+        super().__init__(
+            message=message,
+            code="RATE_LIMIT_EXCEEDED",
+            status_code=429,
+            details=details or {"retry_after": retry_after},
+        )
+        self.retry_after = retry_after
+
+
 class ExternalServiceError(AppException):
     """Raised when an external dependency (PostgreSQL, Qdrant, MinIO, Redis, Groq) fails."""
 

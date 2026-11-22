@@ -169,7 +169,7 @@ async def exchange_token(
         httponly=True,
         samesite="lax",
         max_age=expires_in,
-        secure=False,  # Set to True when deploying behind HTTPS in production
+        secure=settings.is_cookie_secure,
         path="/",
     )
     if refresh_token:
@@ -179,7 +179,7 @@ async def exchange_token(
             httponly=True,
             samesite="lax",
             max_age=refresh_expires_in,
-            secure=False,
+            secure=settings.is_cookie_secure,
             path="/",
         )
 
@@ -232,7 +232,7 @@ async def refresh_session(
         httponly=True,
         samesite="lax",
         max_age=expires_in,
-        secure=False,
+        secure=settings.is_cookie_secure,
         path="/",
     )
     response.set_cookie(
@@ -241,7 +241,7 @@ async def refresh_session(
         httponly=True,
         samesite="lax",
         max_age=refresh_expires_in,
-        secure=False,
+        secure=settings.is_cookie_secure,
         path="/",
     )
 
@@ -316,7 +316,7 @@ async def login(
         httponly=True,
         samesite="lax",
         max_age=3600,
-        secure=False,
+        secure=settings.is_cookie_secure,
         path="/",
     )
 
