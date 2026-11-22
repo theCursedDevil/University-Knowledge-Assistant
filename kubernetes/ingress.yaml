@@ -7,42 +7,47 @@ metadata:
     app.kubernetes.io/name: university-knowledge-assistant
     app.kubernetes.io/part-of: uka
   annotations:
-    kubernetes.io/ingress.class: nginx
-    cert-manager.io/cluster-issuer: letsencrypt-prod
-    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
     nginx.ingress.kubernetes.io/proxy-body-size: "25m"
     nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
     nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
-    # Security headers enforced at ingress gateway level
-    nginx.ingress.kubernetes.io/configuration-snippet: |
-      more_set_headers "X-Content-Type-Options: nosniff";
-      more_set_headers "X-Frame-Options: DENY";
-      more_set_headers "X-XSS-Protection: 1; mode=block";
-      more_set_headers "Strict-Transport-Security: max-age=31536000; includeSubDomains; preload";
 spec:
-  tls:
-    - hosts:
-        - uka.university.edu
-        - api.university.edu
-      secretName: uka-tls-cert
+  ingressClassName: nginx
   rules:
-    - host: api.university.edu
-      http:
+    - http:
         paths:
-          - path: /
+          - path: /api
             pathType: Prefix
             backend:
               service:
-                name: backend-service
+                name: backend
                 port:
                   number: 8000
-    - host: uka.university.edu
-      http:
-        paths:
+          - path: /health
+            pathType: Prefix
+            backend:
+              service:
+                name: backend
+                port:
+                  number: 8000
+          - path: /docs
+            pathType: Prefix
+            backend:
+              service:
+                name: backend
+                port:
+                  number: 8000
+          - path: /openapi.json
+            pathType: Prefix
+            backend:
+              service:
+                name: backend
+                port:
+                  number: 8000
           - path: /
             pathType: Prefix
             backend:
               service:
-                name: frontend-service
+                name: frontend
                 port:
                   number: 3000

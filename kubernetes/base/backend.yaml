@@ -1,0 +1,115 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  namespace: default
+  labels:
+    app.kubernetes.io/name: university-knowledge-assistant
+    app.kubernetes.io/component: backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: backend
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: backend
+        app.kubernetes.io/component: backend
+    spec:
+      initContainers:
+        - name: wait-for-dependencies
+          image: busybox:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for postgres-primary:5432..."
+              until nc -z -w 2 postgres-primary 5432; do sleep 2; done
+              echo "Waiting for redis:6379..."
+              until nc -z -w 2 redis 6379; do sleep 2; done
+              echo "Waiting for qdrant:6333..."
+              until nc -z -w 2 qdrant 6333; do sleep 2; done
+              echo "Waiting for minio:9000..."
+              until nc -z -w 2 minio 9000; do sleep 2; done
+              echo "All dependent backend services are ready."
+      containers:
+        - name: backend
+          image: university-knowledge-assistant-backend:latest
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: uka-config
+            - secretRef:
+                name: uka-secrets
+          env:
+            - name: HF_HUB_OFFLINE
+              value: "1"
+            - name: TRANSFORMERS_OFFLINE
+              value: "1"
+          ports:
+            - containerPort: 8000
+              name: http
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 60
+            timeoutSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            periodSeconds: 5
+            timeoutSeconds: 10
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 200m
+              memory: 512Mi
+            limits:
+              cpu: 1500m
+              memory: 2048Mi
+          volumeMounts:
+            - name: backend-code
+              mountPath: /app/backend/app/main.py
+              subPath: main.py
+            - name: backend-code
+              mountPath: /app/backend/app/rag/vector_store.py
+              subPath: vector_store.py
+      volumes:
+        - name: backend-code
+          configMap:
+            name: backend-main-code
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+  namespace: default
+  labels:
+    app.kubernetes.io/name: university-knowledge-assistant
+    app.kubernetes.io/component: backend
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8000
+      targetPort: 8000
+      name: http
+  selector:
+    app: backend

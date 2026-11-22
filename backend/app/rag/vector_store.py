@@ -39,7 +39,8 @@ class QdrantVectorStore:
         self.host = settings.QDRANT_HOST
         self.port = settings.QDRANT_PORT
         self.collection_name = settings.QDRANT_COLLECTION
-        self.api_key = settings.QDRANT_API_KEY
+        clean_key = settings.QDRANT_API_KEY.strip() if (settings.QDRANT_API_KEY and settings.QDRANT_API_KEY.strip()) else None
+        self.api_key = clean_key
         self.vector_dim = 384  # Matches sentence-transformers/all-MiniLM-L6-v2
         self._client: Optional[QdrantClient] = None
 
@@ -52,6 +53,7 @@ class QdrantVectorStore:
                     host=self.host,
                     port=self.port,
                     api_key=self.api_key,
+                    https=False if (self.host in ("localhost", "qdrant", "127.0.0.1") or not self.api_key) else None,
                     timeout=10.0,
                 )
             except Exception as exc:
@@ -181,6 +183,7 @@ class QdrantVectorStore:
 
     def delete_document_vectors(self, document_id: uuid.UUID) -> None:
         """Deletes all vector points associated with a specific document ID."""
+        self.ensure_collection_exists()
         try:
             self.client.delete(
                 collection_name=self.collection_name,
@@ -198,6 +201,9 @@ class QdrantVectorStore:
             )
             logger.info("Deleted vectors for document '%s' from Qdrant.", document_id)
         except Exception as exc:
+            if "doesn't exist" in str(exc) or "404" in str(exc):
+                logger.info("Collection '%s' does not exist yet; skipping vector deletion.", self.collection_name)
+                return
             logger.error("Failed to delete vectors for document '%s' from Qdrant: %s", document_id, exc)
             raise ExternalServiceError("Qdrant", f"Vector deletion failed: {exc}")
 
