@@ -39,6 +39,7 @@ export default function MetadataManagementPage() {
   const [editingDoc, setEditingDoc] = useState<ApiDocument | null>(null);
   const [editTitle, setEditTitle] = useState("");
   const [editCategory, setEditCategory] = useState("Academic");
+  const [editRoleRestriction, setEditRoleRestriction] = useState("all");
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const loadDocs = useCallback(async () => {
@@ -114,6 +115,7 @@ export default function MetadataManagementPage() {
     setEditingDoc(doc);
     setEditTitle(doc.title);
     setEditCategory(doc.category);
+    setEditRoleRestriction(doc.role_restriction || "all");
   };
 
   const handleSaveMetadata = async () => {
@@ -122,6 +124,7 @@ export default function MetadataManagementPage() {
       const updated = await updateDocumentMetadata(editingDoc.id, {
         title: editTitle.trim(),
         category: editCategory.trim(),
+        role_restriction: editRoleRestriction === "all" ? "" : editRoleRestriction,
       });
       setDocuments((prev) => prev.map((d) => (d.id === updated.id ? updated : d)));
       setEditingDoc(null);
@@ -234,6 +237,7 @@ export default function MetadataManagementPage() {
                   <tr className="border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950/50 text-zinc-500 dark:text-zinc-400">
                     <th className="py-3 px-4 font-semibold">Document Title</th>
                     <th className="py-3 px-4 font-semibold">Category</th>
+                    <th className="py-3 px-4 font-semibold">Access</th>
                     <th className="py-3 px-4 font-semibold">Status</th>
                     <th className="py-3 px-4 font-semibold">Version</th>
                     <th className="py-3 px-4 font-semibold">Ingested</th>
@@ -263,6 +267,19 @@ export default function MetadataManagementPage() {
                         <td className="py-3 px-4">
                           <span className="px-2 py-0.5 rounded text-[11px] font-medium bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300">
                             {doc.category}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4">
+                          <span
+                            className={`px-2 py-0.5 rounded text-[10px] font-semibold border ${
+                              doc.role_restriction === "admin"
+                                ? "bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-400 border-red-200 dark:border-red-800"
+                                : doc.role_restriction === "faculty"
+                                ? "bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-800"
+                                : "bg-zinc-100 dark:bg-zinc-800 border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-400"
+                            }`}
+                          >
+                            {doc.role_restriction ? `${doc.role_restriction.toUpperCase()} ONLY` : "PUBLIC"}
                           </span>
                         </td>
                         <td className="py-3 px-4">
@@ -369,6 +386,19 @@ export default function MetadataManagementPage() {
                     <option value="Admissions">Admissions</option>
                     <option value="Regulations">Regulations</option>
                     <option value="General">General</option>
+                  </select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="font-semibold text-zinc-700 dark:text-zinc-300">Access Restriction (RBAC)</label>
+                  <select
+                    value={editRoleRestriction}
+                    onChange={(e) => setEditRoleRestriction(e.target.value)}
+                    className="w-full px-3 py-2 text-xs rounded-md border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 focus:outline-hidden focus:border-accent cursor-pointer"
+                  >
+                    <option value="all">Public (All Users)</option>
+                    <option value="faculty">Faculty Only (Faculty & Admin)</option>
+                    <option value="admin">Admin Only (Administrative)</option>
                   </select>
                 </div>
 

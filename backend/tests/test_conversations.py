@@ -204,7 +204,7 @@ def test_conversational_history_lookback(client: TestClient):
 
     captured_histories = []
 
-    async def mock_answer_question(question, conversation_history=None, session=None):
+    async def mock_answer_question(question, conversation_history=None, session=None, **kwargs):
         captured_histories.append(list(conversation_history or []))
         return RAGResponse(
             question=question,

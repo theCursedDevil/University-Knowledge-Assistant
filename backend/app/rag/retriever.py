@@ -39,8 +39,9 @@ class VectorRetriever:
         confidence_threshold: Optional[float] = None,
         filter_category: Optional[str] = None,
         filter_document_id: Optional[uuid.UUID] = None,
+        user_role: Optional[str] = None,
     ) -> RetrievalResult:
-        """Embeds natural-language query and searches Qdrant for top-k chunks.
+        """Embeds natural-language query and searches Qdrant for top-k chunks with role-based visibility.
 
         Args:
             query: User's question or search query.
@@ -48,6 +49,7 @@ class VectorRetriever:
             confidence_threshold: Minimum cosine similarity score (default: 0.30).
             filter_category: Optional document category filter.
             filter_document_id: Optional document ID filter.
+            user_role: Optional user role for server-side chunk filtering ('student', 'faculty', 'admin').
 
         Returns:
             RetrievalResult containing retrieved chunks and threshold gating status.
@@ -61,6 +63,7 @@ class VectorRetriever:
             score_threshold=None,  # We fetch top-k first, then evaluate confidence threshold
             filter_category=filter_category,
             filter_document_id=filter_document_id,
+            user_role=user_role,
         )
 
         top_score = chunks[0].score if chunks else 0.0

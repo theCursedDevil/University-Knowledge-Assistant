@@ -114,6 +114,7 @@ async def _execute_pipeline(
             category=document.category,
             chunks=chunks,
             embeddings=embeddings,
+            role_restriction=document.role_restriction,
         )
 
         # 8. Clean up prior chunk metadata in PostgreSQL (for re-runs)

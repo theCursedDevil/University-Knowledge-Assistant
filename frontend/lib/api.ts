@@ -32,6 +32,7 @@ export interface ApiUser {
   name: string;
   email: string;
   role: "student" | "faculty" | "admin";
+  roles?: string[];
   oauth_sub: string;
   created_at: string;
 }
@@ -72,6 +73,7 @@ export interface ApiDocument {
   id: string;
   title: string;
   category: string;
+  role_restriction?: string | null;
   storage_path: string;
   uploaded_by?: string | null;
   status: "processing" | "ready" | "indexed" | "failed";
@@ -91,6 +93,7 @@ export interface ApiDocumentPreview {
   id: string;
   title: string;
   category: string;
+  role_restriction?: string | null;
   status: string;
   storage_path: string;
   page_count: number;
@@ -424,7 +427,7 @@ export async function processDocument(id: string): Promise<any> {
 
 export async function updateDocumentMetadata(
   id: string,
-  payload: { title?: string; category?: string }
+  payload: { title?: string; category?: string; role_restriction?: string }
 ): Promise<ApiDocument> {
   const headers = getAuthHeaders();
   const res = await fetch(`${API_BASE_URL}/documents/${id}`, {
