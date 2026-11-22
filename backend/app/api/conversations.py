@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.app.core.auth_dev import get_current_user
 from backend.app.core.errors import NotFoundError, ForbiddenError
 from backend.app.core.logging import logger
-from backend.app.db.session import get_db, get_read_db, AsyncSessionLocal
+from backend.app.db.session import get_db, get_read_db, AsyncSessionLocal, replica_router
 from backend.app.db.models import User, Conversation, Message
 from backend.app.rag.rag_service import rag_service
 from backend.app.core.rate_limit import check_llm_rate_limit
@@ -126,6 +126,7 @@ async def create_conversation(
     db.add(conversation)
     await db.commit()
     await db.refresh(conversation)
+    replica_router.record_user_write(current_user.id)
 
     logger.info("Created conversation %s for user %s ('%s')", conversation.id, current_user.id, conversation.title)
     return conversation
@@ -406,6 +407,7 @@ async def post_message(
     await db.commit()
     await db.refresh(user_message)
     await db.refresh(assistant_message)
+    replica_router.record_user_write(current_user.id)
 
     logger.info(
         "Chat turn completed for conv %s: user message %s -> assistant message %s (%d citations)",
@@ -456,4 +458,5 @@ async def delete_conversation(
 
     await db.delete(conv)
     await db.commit()
+    replica_router.record_user_write(current_user.id)
     return {"message": "Conversation successfully deleted", "id": str(id)}

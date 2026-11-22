@@ -125,12 +125,17 @@ export default function MetadataManagementPage() {
         title: editTitle.trim(),
         category: editCategory.trim(),
         role_restriction: editRoleRestriction === "all" ? "" : editRoleRestriction,
+        expected_version: editingDoc.version,
       });
       setDocuments((prev) => prev.map((d) => (d.id === updated.id ? updated : d)));
       setEditingDoc(null);
-      showToast("Document metadata successfully updated in PostgreSQL.");
+      showToast(`Document metadata successfully updated in PostgreSQL (v${updated.version}).`);
     } catch (err: any) {
       showToast(err.message || "Failed to update metadata.");
+      // If version conflict occurred, refresh documents to show latest state
+      if (err.message?.includes("Conflict") || err.message?.includes("409") || err.message?.includes("refresh")) {
+        await loadDocs();
+      }
     }
   };
 

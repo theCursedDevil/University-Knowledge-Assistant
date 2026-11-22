@@ -299,6 +299,7 @@ async def get_current_user(
        - Otherwise raises HTTP 401 UnauthorizedError.
     """
     # 1. Authorization: Bearer <token>
+    user = None
     if authorization and authorization.lower().startswith("bearer "):
         raw_token = authorization[7:].strip()
         if raw_token.startswith("dev-token-") and settings.ENVIRONMENT in ("development", "testing"):
@@ -311,18 +312,18 @@ async def get_current_user(
                 role = "admin"
             elif x_dev_role:
                 role = x_dev_role.lower()
-            return await get_or_create_dev_user(db=db, role=role, email=x_dev_email)
-
-        claims = token_validator.validate_token(raw_token)
-        return await get_or_provision_user_from_claims(db=db, claims=claims)
+            user = await get_or_create_dev_user(db=db, role=role, email=x_dev_email)
+        else:
+            claims = token_validator.validate_token(raw_token)
+            user = await get_or_provision_user_from_claims(db=db, claims=claims)
 
     # 2. Explicit dev override header in development/testing mode
-    if settings.ENVIRONMENT in ("development", "testing") and (x_dev_role is not None or x_dev_email is not None):
+    elif settings.ENVIRONMENT in ("development", "testing") and (x_dev_role is not None or x_dev_email is not None):
         target_role = x_dev_role.lower() if x_dev_role else "admin"
-        return await get_or_create_dev_user(db=db, role=target_role, email=x_dev_email)
+        user = await get_or_create_dev_user(db=db, role=target_role, email=x_dev_email)
 
     # 3. Cookie-based authentication (uka_access_token httpOnly cookie)
-    if "uka_access_token" in request.cookies:
+    elif "uka_access_token" in request.cookies:
         cookie_token = request.cookies.get("uka_access_token")
         if cookie_token.startswith("dev-token-") and settings.ENVIRONMENT in ("development", "testing"):
             role = "admin"
@@ -330,14 +331,20 @@ async def get_current_user(
                 role = "student"
             elif "faculty" in cookie_token:
                 role = "faculty"
-            return await get_or_create_dev_user(db=db, role=role, email=x_dev_email)
-
-        claims = token_validator.validate_token(cookie_token)
-        return await get_or_provision_user_from_claims(db=db, claims=claims)
+            user = await get_or_create_dev_user(db=db, role=role, email=x_dev_email)
+        else:
+            claims = token_validator.validate_token(cookie_token)
+            user = await get_or_provision_user_from_claims(db=db, claims=claims)
 
     # 4. Default fallback in development/testing mode (e.g. GET /me without headers)
-    if settings.ENVIRONMENT in ("development", "testing"):
-        return await get_or_create_dev_user(db=db, role="admin", email=x_dev_email)
+    elif settings.ENVIRONMENT in ("development", "testing"):
+        user = await get_or_create_dev_user(db=db, role="admin", email=x_dev_email)
+
+    if user is not None:
+        request.state.user = user
+        request.state.current_user = user
+        request.state.user_id = str(user.id)
+        return user
 
     # Missing credentials in non-dev environment
     raise UnauthorizedError("Missing authentication token.")

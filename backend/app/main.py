@@ -81,9 +81,22 @@ def create_app() -> FastAPI:
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+        expose_headers=["X-Database-Route", "X-Database-Route-Reason"],
     )
 
-    # 2. HTTP Security Headers Middleware (OWASP Secure Headers, HSTS, Permissions Policy)
+    # 2. Database Routing Headers Middleware (FR-DBSYNC-002, FR-DBSYNC-003)
+    @app.middleware("http")
+    async def db_routing_headers_middleware(request: Request, call_next):
+        response = await call_next(request)
+        db_route = getattr(request.state, "db_route", None)
+        if db_route:
+            response.headers["X-Database-Route"] = db_route
+            db_reason = getattr(request.state, "db_route_reason", None)
+            if db_reason:
+                response.headers["X-Database-Route-Reason"] = db_reason
+        return response
+
+    # 3. HTTP Security Headers Middleware (OWASP Secure Headers, HSTS, Permissions Policy)
     @app.middleware("http")
     async def security_headers_middleware(request: Request, call_next):
         response = await call_next(request)
@@ -96,7 +109,7 @@ def create_app() -> FastAPI:
             response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains; preload"
         return response
 
-    # 3. Global Exception Handlers
+    # 4. Global Exception Handlers
     @app.exception_handler(AppException)
     async def app_exception_handler(request: Request, exc: AppException) -> JSONResponse:
         logger.warning(

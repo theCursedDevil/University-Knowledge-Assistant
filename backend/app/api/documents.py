@@ -21,7 +21,7 @@ from fastapi import (
     Query,
 )
 from pydantic import BaseModel, Field
-from sqlalchemy import select, or_
+from sqlalchemy import select, or_, update, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.core.config import get_settings
@@ -30,10 +30,11 @@ from backend.app.core.errors import (
     ForbiddenError,
     NotFoundError,
     ValidationError,
+    ConflictError,
 )
 from backend.app.core.logging import logger
 from backend.app.core.auth_dev import get_current_user, require_admin
-from backend.app.db.session import get_db, get_read_db
+from backend.app.db.session import get_db, get_read_db, replica_router
 from backend.app.db.models import User, Document, DocumentChunkMeta, AuditLog
 from backend.app.services.storage import storage_service
 from backend.app.rag.pipeline import process_document, ProcessingResult
@@ -45,11 +46,15 @@ router = APIRouter()
 
 
 class DocumentUpdateRequest(BaseModel):
-    """Schema for updating document title, category, and access restriction."""
+    """Schema for updating document title, category, and access restriction with optimistic locking."""
 
     title: Optional[str] = Field(default=None, min_length=2, max_length=255)
     category: Optional[str] = Field(default=None, min_length=2, max_length=100)
     role_restriction: Optional[str] = Field(default=None, description="Role restriction: 'all', 'student', 'faculty', 'admin', or empty string to clear.")
+    expected_version: Optional[int] = Field(
+        default=None,
+        description="Expected document version for optimistic concurrency control (FR-DBSYNC-004).",
+    )
 
 
 class DocumentPreviewResponse(BaseModel):
@@ -244,6 +249,8 @@ async def upload_document(
         db.add(audit_entry)
         await db.commit()
         await db.refresh(document)
+        # Record write for read-your-own-writes session consistency (FR-DBSYNC-003)
+        replica_router.record_user_write(current_user.id)
     except Exception as exc:
         logger.error("Database commit failed for doc %s; cleaning up MinIO object: %s", doc_id, exc)
         # Prevent orphaned storage objects
@@ -434,7 +441,7 @@ async def preview_document(
     response_model=DocumentResponse,
     status_code=status.HTTP_200_OK,
     summary="Edit Document Metadata",
-    description="Updates document title and category. Administrator role required.",
+    description="Updates document title, category, or role restriction with optimistic locking (FR-DBSYNC-004). Administrator role required.",
     tags=["Documents"],
 )
 async def update_document(
@@ -443,7 +450,8 @@ async def update_document(
     current_user: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> DocumentResponse:
-    """Updates document metadata and logs an audit trail event."""
+    """Updates document metadata using atomic optimistic concurrency control."""
+    # 1. Verify existence
     stmt = select(Document).where(Document.id == id)
     res = await db.execute(stmt)
     doc = res.scalar_one_or_none()
@@ -453,15 +461,24 @@ async def update_document(
             details={"document_id": str(id)},
         )
 
-    changes = {}
-    if payload.title and payload.title.strip():
-        changes["old_title"] = doc.title
-        doc.title = payload.title.strip()
-        changes["new_title"] = doc.title
-    if payload.category and payload.category.strip():
-        changes["old_category"] = doc.category
-        doc.category = payload.category.strip()
-        changes["new_category"] = doc.category
+    # 2. Check for optimistic locking conflict against existing document state
+    if payload.expected_version is not None and doc.version != payload.expected_version:
+        raise ConflictError(
+            message=(
+                f"Optimistic lock conflict on document '{id}'. "
+                f"Expected version {payload.expected_version}, but current version is {doc.version}. "
+                "The document was modified by another transaction. Please refresh the document before updating."
+            ),
+            details={
+                "document_id": str(id),
+                "expected_version": payload.expected_version,
+                "current_version": doc.version,
+                "action_required": "refresh_document",
+            },
+        )
+
+    # 3. Validate role_restriction if provided
+    restr_val = None
     if payload.role_restriction is not None:
         restr_val = payload.role_restriction.strip().lower() if payload.role_restriction.strip() else None
         if restr_val and restr_val not in ("all", "student", "faculty", "admin"):
@@ -469,23 +486,78 @@ async def update_document(
                 message="Invalid role_restriction. Allowed values are 'all', 'student', 'faculty', 'admin'.",
                 details={"role_restriction": payload.role_restriction},
             )
+
+    # 4. Prepare values to update and audit trail
+    changes: dict = {}
+    values_to_update: dict = {
+        "version": Document.version + 1,
+        "updated_at": func.now(),
+    }
+
+    if payload.title and payload.title.strip():
+        changes["old_title"] = doc.title
+        changes["new_title"] = payload.title.strip()
+        values_to_update["title"] = payload.title.strip()
+
+    if payload.category and payload.category.strip():
+        changes["old_category"] = doc.category
+        changes["new_category"] = payload.category.strip()
+        values_to_update["category"] = payload.category.strip()
+
+    if payload.role_restriction is not None:
         changes["old_role_restriction"] = doc.role_restriction
-        doc.role_restriction = restr_val
-        changes["new_role_restriction"] = doc.role_restriction
+        changes["new_role_restriction"] = restr_val
+        values_to_update["role_restriction"] = restr_val
 
-    if changes:
-        audit = AuditLog(
-            user_id=current_user.id,
-            action="DOCUMENT_METADATA_UPDATE",
-            entity="documents",
-            entity_id=str(doc.id),
-            details=changes,
+    # 5. Atomic SQL UPDATE with WHERE id = :id AND version = :expected_version
+    where_clauses = [Document.id == id]
+    if payload.expected_version is not None:
+        where_clauses.append(Document.version == payload.expected_version)
+
+    update_stmt = (
+        update(Document)
+        .where(*where_clauses)
+        .values(**values_to_update)
+    )
+    result = await db.execute(update_stmt)
+
+    if result.rowcount == 0:
+        # Atomic update matched zero rows indicating concurrent modification
+        refreshed = (await db.execute(select(Document).where(Document.id == id))).scalar_one_or_none()
+        current_ver = refreshed.version if refreshed else None
+        raise ConflictError(
+            message=(
+                f"Optimistic lock conflict on document '{id}'. "
+                f"Expected version {payload.expected_version}, but current version is {current_ver}. "
+                "The document was modified by another transaction. Please refresh the document before updating."
+            ),
+            details={
+                "document_id": str(id),
+                "expected_version": payload.expected_version,
+                "current_version": current_ver,
+                "action_required": "refresh_document",
+            },
         )
-        db.add(audit)
-        await db.commit()
-        await db.refresh(doc)
 
-    return DocumentResponse.model_validate(doc)
+    # 6. Record audit log
+    changes["expected_version"] = payload.expected_version
+    changes["new_version"] = doc.version + 1
+    audit = AuditLog(
+        user_id=current_user.id,
+        action="DOCUMENT_METADATA_UPDATE",
+        entity="documents",
+        entity_id=str(doc.id),
+        details=changes,
+    )
+    db.add(audit)
+    await db.commit()
+
+    # 7. Record write for read-your-own-writes session consistency (FR-DBSYNC-003)
+    replica_router.record_user_write(current_user.id)
+
+    # 8. Reload refreshed document
+    refreshed_doc = (await db.execute(select(Document).where(Document.id == id))).scalar_one()
+    return DocumentResponse.model_validate(refreshed_doc)
 
 
 @router.delete(
@@ -536,6 +608,7 @@ async def delete_document(
     # 4. Delete from database (cascades to document_chunks_meta)
     await db.delete(document)
     await db.commit()
+    replica_router.record_user_write(current_user.id)
 
     logger.info("Document deleted: id=%s title='%s'", id, document.title)
     return DocumentDeleteResponse(
