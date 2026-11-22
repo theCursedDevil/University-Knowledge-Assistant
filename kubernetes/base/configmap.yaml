@@ -1,0 +1,349 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: uka-config
+  namespace: default
+  labels:
+    app.kubernetes.io/name: university-knowledge-assistant
+    app.kubernetes.io/part-of: uka
+data:
+  ENVIRONMENT: "development"
+  DEBUG: "false"
+  LOG_LEVEL: "INFO"
+  HOST: "0.0.0.0"
+  PORT: "8000"
+  CORS_ORIGINS: '["http://localhost:3000","http://192.168.49.2","http://uka.university.edu"]'
+  
+  # PostgreSQL Service Discovery
+  POSTGRES_HOST: "postgres-primary"
+  POSTGRES_PORT: "5432"
+  POSTGRES_REPLICA1_HOST: "postgres-replica-1"
+  POSTGRES_REPLICA1_PORT: "5432"
+  POSTGRES_REPLICA2_HOST: "postgres-replica-2"
+  POSTGRES_REPLICA2_PORT: "5432"
+  READ_YOUR_WRITES_WINDOW_SECONDS: "5.0"
+  
+  # Redis Cache & Locking
+  REDIS_HOST: "redis"
+  REDIS_PORT: "6379"
+  CACHE_ENABLED: "true"
+  CACHE_DEFAULT_TTL_SECONDS: "60"
+  CACHE_DOCUMENTS_LIST_TTL: "60"
+  CACHE_ADMIN_STATS_TTL: "60"
+  LOCK_DEFAULT_TIMEOUT_SECONDS: "5.0"
+  LOCK_DEFAULT_EXPIRE_SECONDS: "30.0"
+  
+  # Qdrant Vector DB
+  QDRANT_HOST: "qdrant"
+  QDRANT_PORT: "6333"
+  QDRANT_COLLECTION: "university_documents"
+  
+  # MinIO Object Storage
+  MINIO_ENDPOINT: "minio:9000"
+  MINIO_BUCKET_NAME: "university-documents"
+  MINIO_SECURE: "false"
+  
+  # Keycloak IAM
+  KEYCLOAK_URL: "http://keycloak:8080"
+  KEYCLOAK_REALM: "university-realm"
+  KEYCLOAK_CLIENT_ID: "university-assistant-client"
+  
+  # RAG Pipeline & Model Configuration
+  HF_HUB_OFFLINE: "1"
+  TRANSFORMERS_OFFLINE: "1"
+  EMBEDDING_MODEL_NAME: "sentence-transformers/all-MiniLM-L6-v2"
+  GROQ_MODEL: "llama-3.1-8b-instant"
+  RAG_TOP_K: "5"
+  RAG_CONFIDENCE_THRESHOLD: "0.30"
+  RAG_LLM_TEMPERATURE: "0.1"
+  RATE_LIMIT_ENABLED: "true"
+  RATE_LIMIT_LLM_RPM: "20"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-init-scripts
+  namespace: default
+  labels:
+    app.kubernetes.io/name: university-knowledge-assistant
+    app.kubernetes.io/component: database
+data:
+  00-primary-init.sh: |
+    #!/bin/bash
+    set -e
+    echo "Configuring PostgreSQL Primary for physical streaming replication..."
+    if ! grep -q "host replication all 0.0.0.0/0 scram-sha-256" "$PGDATA/pg_hba.conf"; then
+        echo "host replication all 0.0.0.0/0 scram-sha-256" >> "$PGDATA/pg_hba.conf"
+        echo "Replication pg_hba entry added."
+    fi
+
+  01-init-replication.sql: |
+    DO $$
+    BEGIN
+        IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'uka_replicator') THEN
+            CREATE ROLE uka_replicator WITH REPLICATION LOGIN PASSWORD 'uka_replica_stream_password';
+            RAISE NOTICE 'Replication role uka_replicator created.';
+        END IF;
+    END
+    $$;
+
+    SELECT pg_create_physical_replication_slot('replica_1_slot')
+    WHERE NOT EXISTS (
+        SELECT 1 FROM pg_replication_slots WHERE slot_name = 'replica_1_slot'
+    );
+
+    SELECT pg_create_physical_replication_slot('replica_2_slot')
+    WHERE NOT EXISTS (
+        SELECT 1 FROM pg_replication_slots WHERE slot_name = 'replica_2_slot'
+    );
+
+  02-init-least-privilege.sql: |
+    DO $$
+    BEGIN
+        IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'uka_app') THEN
+            CREATE ROLE uka_app WITH LOGIN PASSWORD 'uka_app_secure_password';
+            RAISE NOTICE 'Role uka_app created.';
+        ELSE
+            RAISE NOTICE 'Role uka_app already exists.';
+        END IF;
+    END
+    $$;
+
+    GRANT CONNECT ON DATABASE university_assistant TO uka_app;
+    GRANT USAGE ON SCHEMA public TO uka_app;
+    GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO uka_app;
+    GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO uka_app;
+    ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO uka_app;
+    ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO uka_app;
+    REVOKE CREATE ON SCHEMA public FROM uka_app;
+    REVOKE ALL PRIVILEGES ON DATABASE university_assistant FROM uka_app;
+    GRANT CONNECT ON DATABASE university_assistant TO uka_app;
+
+    DO $$
+    BEGIN
+        IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'uka_readonly') THEN
+            CREATE ROLE uka_readonly WITH LOGIN PASSWORD 'uka_readonly_secure_password';
+            RAISE NOTICE 'Role uka_readonly created.';
+        ELSE
+            RAISE NOTICE 'Role uka_readonly already exists.';
+        END IF;
+    END
+    $$;
+
+    GRANT CONNECT ON DATABASE university_assistant TO uka_readonly;
+    GRANT USAGE ON SCHEMA public TO uka_readonly;
+    GRANT SELECT ON ALL TABLES IN SCHEMA public TO uka_readonly;
+    ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO uka_readonly;
+    REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER ON ALL TABLES IN SCHEMA public FROM uka_readonly;
+    REVOKE CREATE ON SCHEMA public FROM uka_readonly;
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-replica-scripts
+  namespace: default
+  labels:
+    app.kubernetes.io/name: university-knowledge-assistant
+    app.kubernetes.io/component: database
+data:
+  replica-entrypoint.sh: |
+    #!/bin/sh
+    set -e
+
+    PRIMARY_HOST="${PRIMARY_HOST:-postgres-primary}"
+    PRIMARY_PORT="${PRIMARY_PORT:-5432}"
+    PRIMARY_USER="${PRIMARY_USER:-postgres}"
+    REPL_USER="${REPL_USER:-uka_replicator}"
+    REPL_PASSWORD="${REPL_PASSWORD:-uka_replica_stream_password}"
+    REPL_SLOT="${REPL_SLOT:-replica_1_slot}"
+    PGDATA="${PGDATA:-/var/lib/postgresql/data/pgdata}"
+
+    echo "Starting standby replica configuration for slot: $REPL_SLOT..."
+
+    mkdir -p "$PGDATA"
+
+    if [ ! -s "$PGDATA/PG_VERSION" ]; then
+        echo "Standby database directory is empty. Waiting for primary $PRIMARY_HOST:$PRIMARY_PORT..."
+        until pg_isready -h "$PRIMARY_HOST" -p "$PRIMARY_PORT" -U "$PRIMARY_USER"; do
+            echo "Primary not ready yet, sleeping 1s..."
+            sleep 1
+        done
+
+        echo "Primary is ready. Taking pg_basebackup from $PRIMARY_HOST using replication slot $REPL_SLOT..."
+        rm -rf "${PGDATA:?}"/*
+        PGPASSWORD="$REPL_PASSWORD" pg_basebackup \
+            -h "$PRIMARY_HOST" \
+            -p "$PRIMARY_PORT" \
+            -U "$REPL_USER" \
+            -D "$PGDATA" \
+            -Fp \
+            -Xs \
+            -P \
+            -R \
+            -S "$REPL_SLOT"
+
+        echo "Base backup completed successfully."
+    fi
+
+    touch "$PGDATA/standby.signal"
+    chown -R postgres:postgres "$PGDATA"
+    chmod 700 "$PGDATA"
+
+    echo "Starting PostgreSQL 16 as user 'postgres' in read-only standby mode..."
+    if command -v su-exec >/dev/null 2>&1; then
+        exec su-exec postgres postgres -D "$PGDATA" -c hot_standby=on -c default_transaction_read_only=on
+    elif command -v gosu >/dev/null 2>&1; then
+        exec gosu postgres postgres -D "$PGDATA" -c hot_standby=on -c default_transaction_read_only=on
+    else
+        exec su -s /bin/sh postgres -c "postgres -D $PGDATA -c hot_standby=on -c default_transaction_read_only=on"
+    fi
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: keycloak-realm-config
+  namespace: default
+  labels:
+    app.kubernetes.io/name: university-knowledge-assistant
+    app.kubernetes.io/component: auth
+data:
+  university-realm.json: |
+    {
+      "realm": "university-realm",
+      "displayName": "University Knowledge Assistant",
+      "enabled": true,
+      "sslRequired": "external",
+      "registrationAllowed": true,
+      "loginWithEmailAllowed": true,
+      "duplicateEmailsAllowed": false,
+      "resetPasswordAllowed": true,
+      "editUsernameAllowed": false,
+      "accessTokenLifespan": 1800,
+      "ssoSessionIdleTimeout": 3600,
+      "ssoSessionMaxLifespan": 7200,
+      "roles": {
+        "realm": [
+          {
+            "id": "role-admin-id",
+            "name": "admin",
+            "description": "University System Administrator with full catalog and system management rights",
+            "composite": false,
+            "clientRole": false
+          },
+          {
+            "id": "role-faculty-id",
+            "name": "faculty",
+            "description": "University Faculty Member with research and curriculum document access",
+            "composite": false,
+            "clientRole": false
+          },
+          {
+            "id": "role-student-id",
+            "name": "student",
+            "description": "Enrolled University Student with general inquiry and catalog access",
+            "composite": false,
+            "clientRole": false
+          }
+        ]
+      },
+      "defaultRoles": [
+        "student"
+      ],
+      "clients": [
+        {
+          "clientId": "university-assistant-client",
+          "name": "University Knowledge Assistant Web Application",
+          "description": "Next.js Frontend & FastAPI Backend Client with PKCE enabled",
+          "enabled": true,
+          "clientAuthenticatorType": "client-secret",
+          "redirectUris": [
+            "http://localhost:3000/*",
+            "http://127.0.0.1:3000/*",
+            "http://localhost:8000/*",
+            "http://127.0.0.1:8000/*",
+            "http://192.168.49.2/*",
+            "http://uka.university.edu/*"
+          ],
+          "webOrigins": [
+            "*"
+          ],
+          "publicClient": true,
+          "protocol": "openid-connect",
+          "standardFlowEnabled": true,
+          "implicitFlowEnabled": false,
+          "directAccessGrantsEnabled": true,
+          "serviceAccountsEnabled": false,
+          "fullScopeAllowed": true,
+          "attributes": {
+            "pkce.code.challenge.method": "S256",
+            "post.logout.redirect.uris": "http://localhost:3000/*##http://localhost:8000/*##http://192.168.49.2/*"
+          },
+          "defaultClientScopes": [
+            "web-origins",
+            "acr",
+            "roles",
+            "profile",
+            "email"
+          ]
+        }
+      ],
+      "users": [
+        {
+          "id": "user-admin-uuid-001",
+          "username": "admin",
+          "email": "admin@university.edu",
+          "firstName": "System",
+          "lastName": "Admin",
+          "enabled": true,
+          "emailVerified": true,
+          "credentials": [
+            {
+              "type": "password",
+              "value": "AdminPassword123!",
+              "temporary": false
+            }
+          ],
+          "realmRoles": [
+            "admin"
+          ]
+        },
+        {
+          "id": "user-faculty-uuid-002",
+          "username": "faculty",
+          "email": "faculty@university.edu",
+          "firstName": "Prof",
+          "lastName": "Sharma",
+          "enabled": true,
+          "emailVerified": true,
+          "credentials": [
+            {
+              "type": "password",
+              "value": "FacultyPassword123!",
+              "temporary": false
+            }
+          ],
+          "realmRoles": [
+            "faculty"
+          ]
+        },
+        {
+          "id": "user-student-uuid-003",
+          "username": "student",
+          "email": "student@university.edu",
+          "firstName": "Aashu",
+          "lastName": "Kumar",
+          "enabled": true,
+          "emailVerified": true,
+          "credentials": [
+            {
+              "type": "password",
+              "value": "StudentPassword123!",
+              "temporary": false
+            }
+          ],
+          "realmRoles": [
+            "student"
+          ]
+        }
+      ]
+    }

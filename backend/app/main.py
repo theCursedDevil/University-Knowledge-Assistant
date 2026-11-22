@@ -41,18 +41,30 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         settings.DEBUG,
     )
 
-    # 1. Initialize SentenceTransformer embedding model once at startup for safe reuse
-    try:
-        from backend.app.rag.embeddings import embedding_client
-        from backend.app.rag.vector_store import vector_store
+    # 1. Background warmup for SentenceTransformer embedding model and Qdrant
+    # Allows HTTP healthcheck probes to succeed instantly without Kubelet timeout
+    import asyncio
 
-        logger.info("Initializing SentenceTransformer '%s' on CPU...", settings.EMBEDDING_MODEL_NAME)
-        _ = embedding_client.model
-        logger.info("Verifying Qdrant vector collection '%s'...", settings.QDRANT_COLLECTION)
-        vector_store.ensure_collection_exists()
-        logger.info("Embedding model and Qdrant vector store successfully initialized.")
-    except Exception as exc:
-        logger.warning("Startup AI model pre-initialization deferred: %s", exc)
+    def _warmup_sync() -> None:
+        try:
+            from backend.app.rag.embeddings import embedding_client
+            from backend.app.rag.vector_store import vector_store
+
+            logger.info("Background warming up SentenceTransformer '%s' on CPU...", settings.EMBEDDING_MODEL_NAME)
+            _ = embedding_client.model
+            logger.info("Verifying Qdrant vector collection '%s'...", settings.QDRANT_COLLECTION)
+            vector_store.ensure_collection_exists()
+            logger.info("Embedding model and Qdrant vector store successfully initialized.")
+        except Exception as exc:
+            logger.warning("Startup AI model background pre-initialization deferred: %s", exc)
+
+    async def _warmup_ai_models() -> None:
+        try:
+            await asyncio.to_thread(_warmup_sync)
+        except Exception as exc:
+            logger.warning("Async model warmup task deferred: %s", exc)
+
+    asyncio.create_task(_warmup_ai_models())
 
     # 2. Verify Redis cache & locking client connectivity (C-CACHE)
     try:

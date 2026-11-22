@@ -1,0 +1,611 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backend-main-code
+  namespace: default
+  labels:
+    app.kubernetes.io/name: university-knowledge-assistant
+    app.kubernetes.io/component: backend
+data:
+  main.py: |
+    """FastAPI application factory and main entry point.
+
+    Configures CORS middleware, exception handlers, Swagger/OpenAPI documentation,
+    lifecycle logging, and routes.
+    """
+
+    from contextlib import asynccontextmanager
+    from typing import AsyncGenerator
+    from fastapi import FastAPI, Request, status
+    from fastapi.exceptions import RequestValidationError
+    from fastapi.middleware.cors import CORSMiddleware
+    from fastapi.responses import JSONResponse
+    from starlette.exceptions import HTTPException as StarletteHTTPException
+
+    from backend.app.core.config import get_settings
+    from backend.app.core.logging import setup_logging, logger
+    from backend.app.core.errors import (
+        AppException,
+        ErrorDetail,
+        ErrorResponse,
+    )
+    from backend.app.api.router import api_router
+    from backend.app.api.health import router as health_router
+    from backend.app.api.documents import router as documents_router
+    from backend.app.api.conversations import router as conversations_router
+    from backend.app.api.auth import router as auth_router
+    from backend.app.api.admin import router as admin_router
+
+    settings = get_settings()
+
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+        """Manages application startup and graceful shutdown events."""
+        setup_logging(settings.LOG_LEVEL)
+        logger.info(
+            "Starting %s v%s [Env: %s, Debug: %s]",
+            settings.PROJECT_NAME,
+            settings.VERSION,
+            settings.ENVIRONMENT,
+            settings.DEBUG,
+        )
+
+        # 1. Background warmup for SentenceTransformer embedding model and Qdrant
+        # Allows HTTP healthcheck probes to succeed instantly without Kubelet timeout
+        import asyncio
+
+        def _warmup_sync() -> None:
+            try:
+                from backend.app.rag.embeddings import embedding_client
+                from backend.app.rag.vector_store import vector_store
+
+                logger.info("Background warming up SentenceTransformer '%s' on CPU...", settings.EMBEDDING_MODEL_NAME)
+                _ = embedding_client.model
+                logger.info("Verifying Qdrant vector collection '%s'...", settings.QDRANT_COLLECTION)
+                vector_store.ensure_collection_exists()
+                logger.info("Embedding model and Qdrant vector store successfully initialized.")
+            except Exception as exc:
+                logger.warning("Startup AI model background pre-initialization deferred: %s", exc)
+
+        async def _warmup_ai_models() -> None:
+            try:
+                await asyncio.to_thread(_warmup_sync)
+            except Exception as exc:
+                logger.warning("Async model warmup task deferred: %s", exc)
+
+        asyncio.create_task(_warmup_ai_models())
+
+        # 2. Verify Redis cache & locking client connectivity (C-CACHE)
+        try:
+            from backend.app.core.cache import cache_client, redis_manager
+            if redis_manager.is_healthy():
+                logger.info("Connected to Redis cache at %s:%s (db=%s).", settings.REDIS_HOST, settings.REDIS_PORT, settings.REDIS_DB)
+            else:
+                logger.warning("Redis cache at %s:%s is currently unreachable; operating in graceful fallback mode.", settings.REDIS_HOST, settings.REDIS_PORT)
+        except Exception as exc:
+            logger.warning("Redis initialization check deferred: %s", exc)
+
+        # 3. Verify MinIO knowledge storage bucket exists (C-DOCSVC)
+        try:
+            from backend.app.services.storage import storage_service
+            storage_service.ensure_bucket_exists()
+            logger.info("MinIO storage bucket '%s' verified.", settings.MINIO_BUCKET_NAME)
+        except Exception as exc:
+            logger.warning("MinIO bucket initialization deferred: %s", exc)
+
+        yield
+        logger.info("Shutting down %s", settings.PROJECT_NAME)
+
+
+    def create_app() -> FastAPI:
+        """Application factory building and configuring the FastAPI instance."""
+        app = FastAPI(
+            title=settings.PROJECT_NAME,
+            version=settings.VERSION,
+            description=(
+                "Generative AI-Based University Knowledge Assistant Backend API. "
+                "Provides grounded RAG question answering, document ingestion, "
+                "and multi-replica synchronization."
+            ),
+            docs_url="/docs",
+            redoc_url="/redoc",
+            openapi_url="/openapi.json",
+            lifespan=lifespan,
+        )
+
+        # 1. CORS Middleware (Restricted to Authorized Frontend Origins)
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=settings.CORS_ORIGINS,
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+            expose_headers=["X-Database-Route", "X-Database-Route-Reason", "X-Cache"],
+        )
+
+        # 2. Database Routing Headers Middleware (FR-DBSYNC-002, FR-DBSYNC-003)
+        @app.middleware("http")
+        async def db_routing_headers_middleware(request: Request, call_next):
+            response = await call_next(request)
+            db_route = getattr(request.state, "db_route", None)
+            if db_route:
+                response.headers["X-Database-Route"] = db_route
+                db_reason = getattr(request.state, "db_route_reason", None)
+                if db_reason:
+                    response.headers["X-Database-Route-Reason"] = db_reason
+            return response
+
+        # 3. HTTP Security Headers Middleware (OWASP Secure Headers, HSTS, Permissions Policy)
+        @app.middleware("http")
+        async def security_headers_middleware(request: Request, call_next):
+            response = await call_next(request)
+            response.headers["X-Content-Type-Options"] = "nosniff"
+            response.headers["X-Frame-Options"] = "DENY"
+            response.headers["X-XSS-Protection"] = "1; mode=block"
+            response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+            response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+            if settings.ENVIRONMENT.lower() not in ("development", "testing"):
+                response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains; preload"
+            return response
+
+        # 4. Global Exception Handlers
+        @app.exception_handler(AppException)
+        async def app_exception_handler(request: Request, exc: AppException) -> JSONResponse:
+            logger.warning(
+                "Domain error [%s] %s on %s %s: %s",
+                exc.code,
+                exc.status_code,
+                request.method,
+                request.url.path,
+                exc.message,
+            )
+            resp_headers = {}
+            if exc.status_code == 429:
+                retry_after = 60
+                if isinstance(exc.details, dict) and "retry_after" in exc.details:
+                    retry_after = exc.details["retry_after"]
+                elif hasattr(exc, "retry_after"):
+                    retry_after = exc.retry_after
+                resp_headers["Retry-After"] = str(retry_after)
+
+            return JSONResponse(
+                status_code=exc.status_code,
+                headers=resp_headers if resp_headers else None,
+                content=ErrorResponse(
+                    error=ErrorDetail(
+                        code=exc.code,
+                        message=exc.message,
+                        details=exc.details,
+                    )
+                ).model_dump(),
+            )
+
+        @app.exception_handler(RequestValidationError)
+        async def validation_exception_handler(
+            request: Request, exc: RequestValidationError
+        ) -> JSONResponse:
+            logger.info(
+                "Validation error on %s %s: %s",
+                request.method,
+                request.url.path,
+                exc.errors(),
+            )
+            return JSONResponse(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                content=ErrorResponse(
+                    error=ErrorDetail(
+                        code="VALIDATION_ERROR",
+                        message="Request validation failed. Verify input schema.",
+                        details=exc.errors(),
+                    )
+                ).model_dump(),
+            )
+
+        @app.exception_handler(StarletteHTTPException)
+        async def http_exception_handler(
+            request: Request, exc: StarletteHTTPException
+        ) -> JSONResponse:
+            code = "HTTP_ERROR"
+            if exc.status_code == 404:
+                code = "NOT_FOUND"
+            elif exc.status_code == 401:
+                code = "UNAUTHORIZED"
+            elif exc.status_code == 403:
+                code = "FORBIDDEN"
+
+            return JSONResponse(
+                status_code=exc.status_code,
+                content=ErrorResponse(
+                    error=ErrorDetail(
+                        code=code,
+                        message=str(exc.detail),
+                    )
+                ).model_dump(),
+            )
+
+        @app.exception_handler(Exception)
+        async def generic_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+            logger.exception("Unhandled server exception on %s %s: %s", request.method, request.url.path, exc)
+            return JSONResponse(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                content=ErrorResponse(
+                    error=ErrorDetail(
+                        code="INTERNAL_SERVER_ERROR",
+                        message="An unexpected server error occurred.",
+                        details=str(exc) if settings.DEBUG else None,
+                    )
+                ).model_dump(),
+            )
+
+        # 3. Mount Direct Endpoints at Root (/health, /documents, /conversations, /me, /admin) per requirements
+        app.include_router(health_router, prefix="", tags=["Health"])
+        app.include_router(documents_router, prefix="", tags=["Documents"])
+        app.include_router(conversations_router, prefix="", tags=["Conversations"])
+        app.include_router(auth_router, prefix="", tags=["Auth"])
+        app.include_router(admin_router, prefix="", tags=["Admin"])
+
+        # 4. Mount Versioned API Router (/api/v1)
+        app.include_router(api_router, prefix=settings.API_V1_PREFIX)
+
+        return app
+
+
+    # Application entry point for Uvicorn ASGI server
+    app = create_app()
+
+  vector_store.py: |
+    """Qdrant vector database client and collection management (C-PROC, C-RAGSVC).
+
+    Manages Qdrant collection creation, payload indexing, batch vector upsert,
+    duplicate prevention, point deletion, and top-k cosine similarity retrieval.
+    """
+
+    import uuid
+    from typing import List, Dict, Any, Optional
+    from pydantic import BaseModel, Field
+    from qdrant_client import QdrantClient
+    from qdrant_client.http import models
+
+    from backend.app.core.config import get_settings
+    from backend.app.core.logging import logger
+    from backend.app.core.errors import ExternalServiceError
+    from backend.app.rag.chunker import DocumentChunk
+
+    settings = get_settings()
+
+
+    class SearchResult(BaseModel):
+        """Schema for a retrieved semantic chunk from Qdrant."""
+
+        chunk_id: str = Field(..., description="Unique vector point identifier.")
+        document_id: str = Field(..., description="Foreign key linking to PostgreSQL document record.")
+        document_name: str = Field(..., description="Source document title.")
+        chunk_text: str = Field(..., description="Text content of the retrieved chunk.")
+        page: Optional[int] = Field(default=None, description="Source PDF page number (1-indexed).")
+        section: Optional[str] = Field(default=None, description="Section heading context.")
+        score: float = Field(..., description="Cosine similarity score (0.0 to 1.0).")
+        category: Optional[str] = Field(default=None, description="Document category.")
+        role_restriction: Optional[str] = Field(default=None, description="Role restriction ('faculty', 'admin', or None).")
+
+
+    class QdrantVectorStore:
+        """Manages vector operations and schema within Qdrant."""
+
+        def __init__(self):
+            self.host = settings.QDRANT_HOST
+            self.port = settings.QDRANT_PORT
+            self.collection_name = settings.QDRANT_COLLECTION
+            clean_key = settings.QDRANT_API_KEY.strip() if (settings.QDRANT_API_KEY and settings.QDRANT_API_KEY.strip()) else None
+            self.api_key = clean_key
+            self.vector_dim = 384  # Matches sentence-transformers/all-MiniLM-L6-v2
+            self._client: Optional[QdrantClient] = None
+
+        @property
+        def client(self) -> QdrantClient:
+            """Lazy-loaded Qdrant client instance."""
+            if self._client is None:
+                try:
+                    self._client = QdrantClient(
+                        host=self.host,
+                        port=self.port,
+                        api_key=self.api_key,
+                        https=False if (self.host in ("localhost", "qdrant", "127.0.0.1") or not self.api_key) else None,
+                        timeout=10.0,
+                    )
+                except Exception as exc:
+                    logger.error("Failed to initialize QdrantClient: %s", exc)
+                    raise ExternalServiceError("Qdrant", f"Initialization error: {exc}")
+            return self._client
+
+        def ensure_collection_exists(self) -> None:
+            """Verifies collection exists with 384-dim Cosine configuration; creates it if absent."""
+            try:
+                collections_response = self.client.get_collections()
+                existing_names = [col.name for col in collections_response.collections]
+
+                if self.collection_name not in existing_names:
+                    logger.info(
+                        "Creating Qdrant collection '%s' (dim=%d, distance=Cosine)...",
+                        self.collection_name,
+                        self.vector_dim,
+                    )
+                    self.client.create_collection(
+                        collection_name=self.collection_name,
+                        vectors_config=models.VectorParams(
+                            size=self.vector_dim,
+                            distance=models.Distance.COSINE,
+                        ),
+                    )
+                    # Create payload indexes for fast filtered lookups
+                    self.client.create_payload_index(
+                        collection_name=self.collection_name,
+                        field_name="document_id",
+                        field_schema=models.PayloadSchemaType.KEYWORD,
+                    )
+                    self.client.create_payload_index(
+                        collection_name=self.collection_name,
+                        field_name="category",
+                        field_schema=models.PayloadSchemaType.KEYWORD,
+                    )
+                    self.client.create_payload_index(
+                        collection_name=self.collection_name,
+                        field_name="role_restriction",
+                        field_schema=models.PayloadSchemaType.KEYWORD,
+                    )
+                    logger.info("Qdrant collection '%s' created with payload indexes.", self.collection_name)
+            except Exception as exc:
+                logger.error("Failed to verify/create Qdrant collection '%s': %s", self.collection_name, exc)
+                raise ExternalServiceError("Qdrant", f"Collection check failed: {exc}")
+
+        def upsert_chunks(
+            self,
+            document_id: uuid.UUID,
+            document_title: str,
+            category: str,
+            chunks: List[DocumentChunk],
+            embeddings: List[List[float]],
+            role_restriction: Optional[str] = None,
+        ) -> List[str]:
+            """Upserts document chunks and embeddings into Qdrant.
+
+            Uses deterministic vector UUIDs (uuid5) derived from document_id and chunk_index
+            to strictly prevent duplicate points if a document is re-processed.
+
+            Payload schema:
+            - document_id: Foreign key to PostgreSQL documents.id
+            - chunk_text: Text content of the chunk
+            - page: 1-indexed source PDF page number
+            - section: Section heading
+            - document_name: Document title
+            - chunk_id: Vector point identifier
+            - role_restriction: Access control role restriction ('faculty', 'admin', or '')
+
+            Returns:
+                List of vector_id UUID strings corresponding to the upserted points.
+            """
+            self.ensure_collection_exists()
+
+            if len(chunks) != len(embeddings):
+                raise ValueError(
+                    f"Chunks count ({len(chunks)}) does not match embeddings count ({len(embeddings)})"
+                )
+
+            points: List[models.PointStruct] = []
+            vector_ids: List[str] = []
+            norm_restriction = (role_restriction or "").lower().strip()
+
+            for chunk, embedding in zip(chunks, embeddings):
+                # Deterministic UUID prevents duplicate points under repeated execution
+                vector_id = str(uuid.uuid5(document_id, f"chunk_{chunk.chunk_index}"))
+                vector_ids.append(vector_id)
+
+                payload: Dict[str, Any] = {
+                    # Prompt 8 required metadata fields:
+                    "document_id": str(document_id),
+                    "chunk_text": chunk.text,
+                    "page": chunk.page,
+                    "section": chunk.section,
+                    "document_name": document_title,
+                    "chunk_id": vector_id,
+                    # Role-based access control restriction:
+                    "role_restriction": norm_restriction,
+                    # Context & backward compatibility fields:
+                    "text": chunk.text,
+                    "document_title": document_title,
+                    "category": category,
+                    "chunk_index": chunk.chunk_index,
+                    "char_count": chunk.char_count,
+                }
+
+                points.append(
+                    models.PointStruct(
+                        id=vector_id,
+                        vector=embedding,
+                        payload=payload,
+                    )
+                )
+
+            try:
+                self.client.upsert(
+                    collection_name=self.collection_name,
+                    points=points,
+                    wait=True,
+                )
+                logger.info("Upserted %d vector points to Qdrant for document '%s'", len(points), document_id)
+                return vector_ids
+            except Exception as exc:
+                logger.error("Qdrant upsert failed for document '%s': %s", document_id, exc)
+                raise ExternalServiceError("Qdrant", f"Vector upsert failed: {exc}")
+
+        def delete_document_vectors(self, document_id: uuid.UUID) -> None:
+            """Deletes all vector points associated with a specific document ID."""
+            self.ensure_collection_exists()
+            try:
+                self.client.delete(
+                    collection_name=self.collection_name,
+                    points_selector=models.FilterSelector(
+                        filter=models.Filter(
+                            must=[
+                                models.FieldCondition(
+                                    key="document_id",
+                                    match=models.MatchValue(value=str(document_id)),
+                                )
+                            ]
+                        )
+                    ),
+                    wait=True,
+                )
+                logger.info("Deleted vectors for document '%s' from Qdrant.", document_id)
+            except Exception as exc:
+                if "doesn't exist" in str(exc) or "404" in str(exc):
+                    logger.info("Collection '%s' does not exist yet; skipping vector deletion.", self.collection_name)
+                    return
+                logger.error("Failed to delete vectors for document '%s' from Qdrant: %s", document_id, exc)
+                raise ExternalServiceError("Qdrant", f"Vector deletion failed: {exc}")
+
+        def count_document_vectors(self, document_id: uuid.UUID) -> int:
+            """Counts existing vector points for a given document ID."""
+            try:
+                result = self.client.count(
+                    collection_name=self.collection_name,
+                    count_filter=models.Filter(
+                        must=[
+                            models.FieldCondition(
+                                key="document_id",
+                                match=models.MatchValue(value=str(document_id)),
+                            )
+                        ]
+                    ),
+                )
+                return result.count
+            except Exception as exc:
+                logger.error("Failed to count vectors for document '%s': %s", document_id, exc)
+                return 0
+
+        def search_vectors(
+            self,
+            query_vector: List[float],
+            limit: int = 5,
+            score_threshold: Optional[float] = None,
+            filter_category: Optional[str] = None,
+            filter_document_id: Optional[uuid.UUID] = None,
+            user_role: Optional[str] = None,
+        ) -> List[SearchResult]:
+            """Executes top-k cosine similarity search against Qdrant collection with role-based filtering."""
+            self.ensure_collection_exists()
+
+            must_conditions = []
+            must_not_conditions = []
+
+            if filter_category:
+                must_conditions.append(
+                    models.FieldCondition(
+                        key="category",
+                        match=models.MatchValue(value=filter_category),
+                    )
+                )
+            if filter_document_id:
+                must_conditions.append(
+                    models.FieldCondition(
+                        key="document_id",
+                        match=models.MatchValue(value=str(filter_document_id)),
+                    )
+                )
+
+            # Enforce server-side role-based chunk visibility (FR-DOC-010, NFR-SEC-009)
+            role = (user_role or "").lower().strip()
+            if role == "student":
+                must_not_conditions.append(
+                    models.FieldCondition(
+                        key="role_restriction",
+                        match=models.MatchValue(value="faculty"),
+                    )
+                )
+                must_not_conditions.append(
+                    models.FieldCondition(
+                        key="role_restriction",
+                        match=models.MatchValue(value="admin"),
+                    )
+                )
+            elif role == "faculty":
+                must_not_conditions.append(
+                    models.FieldCondition(
+                        key="role_restriction",
+                        match=models.MatchValue(value="admin"),
+                    )
+                )
+
+            query_filter = None
+            if must_conditions or must_not_conditions:
+                query_filter = models.Filter(
+                    must=must_conditions if must_conditions else None,
+                    must_not=must_not_conditions if must_not_conditions else None,
+                )
+
+            try:
+                if hasattr(self.client, "query_points"):
+                    response = self.client.query_points(
+                        collection_name=self.collection_name,
+                        query=query_vector,
+                        limit=limit,
+                        query_filter=query_filter,
+                        score_threshold=score_threshold,
+                        with_payload=True,
+                    )
+                    hits = response.points
+                else:
+                    hits = self.client.search(
+                        collection_name=self.collection_name,
+                        query_vector=query_vector,
+                        limit=limit,
+                        query_filter=query_filter,
+                        score_threshold=score_threshold,
+                        with_payload=True,
+                    )
+
+                results: List[SearchResult] = []
+                for hit in hits:
+                    payload = hit.payload or {}
+                    results.append(
+                        SearchResult(
+                            chunk_id=str(hit.id),
+                            document_id=payload.get("document_id", ""),
+                            document_name=payload.get("document_name") or payload.get("document_title", ""),
+                            chunk_text=payload.get("chunk_text") or payload.get("text", ""),
+                            page=payload.get("page"),
+                            section=payload.get("section"),
+                            score=round(float(hit.score), 4),
+                            category=payload.get("category"),
+                            role_restriction=payload.get("role_restriction"),
+                        )
+                    )
+                return results
+            except Exception as exc:
+                logger.error("Qdrant vector search failed: %s", exc)
+                raise ExternalServiceError("Qdrant", f"Vector search failed: {exc}")
+
+        def search(
+            self,
+            query: str,
+            limit: int = 5,
+            score_threshold: Optional[float] = None,
+            filter_category: Optional[str] = None,
+            filter_document_id: Optional[uuid.UUID] = None,
+            user_role: Optional[str] = None,
+        ) -> List[SearchResult]:
+            """Encodes query with all-MiniLM-L6-v2 and retrieves top-k most similar chunks."""
+            from backend.app.rag.embeddings import embedding_client
+
+            query_vector = embedding_client.embed_query(query)
+            return self.search_vectors(
+                query_vector=query_vector,
+                limit=limit,
+                score_threshold=score_threshold,
+                filter_category=filter_category,
+                filter_document_id=filter_document_id,
+                user_role=user_role,
+            )
+
+
+    vector_store = QdrantVectorStore()
