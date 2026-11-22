@@ -33,7 +33,7 @@ from backend.app.core.errors import (
 )
 from backend.app.core.logging import logger
 from backend.app.core.auth_dev import get_current_user, require_admin
-from backend.app.db.session import get_db
+from backend.app.db.session import get_db, get_read_db
 from backend.app.db.models import User, Document, DocumentChunkMeta, AuditLog
 from backend.app.services.storage import storage_service
 from backend.app.rag.pipeline import process_document, ProcessingResult
@@ -295,7 +295,7 @@ async def trigger_document_processing(
 async def get_document_chunks(
     id: uuid.UUID,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_read_db),
 ) -> List[DocumentChunkResponse]:
     """Retrieves chunk metadata associated with the document from PostgreSQL."""
     doc_stmt = select(Document).where(Document.id == id)
@@ -330,7 +330,7 @@ async def list_documents(
     skip: int = Query(default=0, ge=0, description="Pagination offset."),
     limit: int = Query(default=100, ge=1, le=500, description="Pagination limit."),
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_read_db),
 ) -> List[DocumentResponse]:
     """Retrieves document records from PostgreSQL with role-based visibility filtering."""
     query = select(Document)
@@ -371,7 +371,7 @@ async def list_documents(
 async def get_document(
     id: uuid.UUID,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_read_db),
 ) -> DocumentResponse:
     """Retrieves single document metadata."""
     stmt = select(Document).where(Document.id == id)
@@ -397,7 +397,7 @@ async def get_document(
 async def preview_document(
     id: uuid.UUID,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_read_db),
 ) -> DocumentPreviewResponse:
     """Extracts and returns document text pages from MinIO object storage."""
     stmt = select(Document).where(Document.id == id)

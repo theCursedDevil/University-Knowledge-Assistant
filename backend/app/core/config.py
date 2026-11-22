@@ -97,9 +97,9 @@ class Settings(BaseSettings):
 
     # PostgreSQL Read Replicas
     POSTGRES_REPLICA1_HOST: str = Field(default="localhost")
-    POSTGRES_REPLICA1_PORT: int = Field(default=5432)
+    POSTGRES_REPLICA1_PORT: int = Field(default=5433)
     POSTGRES_REPLICA2_HOST: str = Field(default="localhost")
-    POSTGRES_REPLICA2_PORT: int = Field(default=5432)
+    POSTGRES_REPLICA2_PORT: int = Field(default=5434)
 
     # Redis Cache & Distributed Locking
     REDIS_HOST: str = Field(default="localhost")
@@ -174,6 +174,11 @@ class Settings(BaseSettings):
             f"postgresql+asyncpg://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}"
             f"@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
         )
+
+    @property
+    def primary_async_url(self) -> str:
+        """Asynchronous connection URL for Primary (Read-Write)."""
+        return self.async_database_url
 
     @property
     def replica1_async_url(self) -> str:

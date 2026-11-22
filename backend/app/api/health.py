@@ -52,3 +52,16 @@ async def get_health() -> HealthResponse:
         timestamp=datetime.now(timezone.utc).isoformat(),
         services=services_summary,
     )
+
+
+@router.get(
+    "/health/db",
+    status_code=status.HTTP_200_OK,
+    summary="Database Replication Health Check",
+    description="Returns detailed connectivity, standby recovery state, and WAL streaming status for Primary and Replicas.",
+    tags=["Health"],
+)
+async def get_db_health() -> Dict[str, Any]:
+    """Returns connectivity, standby recovery, and WAL replication metrics across all database nodes."""
+    from backend.app.db.session import check_db_connection
+    return await check_db_connection()

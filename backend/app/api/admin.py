@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.app.core.auth_dev import require_admin
 from backend.app.core.errors import NotFoundError, ForbiddenError
 from backend.app.core.logging import logger
-from backend.app.db.session import get_db
+from backend.app.db.session import get_db, get_read_db
 from backend.app.db.models import User, Document, DocumentChunkMeta, Conversation, Message, AuditLog
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
@@ -83,7 +83,7 @@ class UpdateUserRoleRequest(BaseModel):
 )
 async def get_admin_stats(
     current_user: User = Depends(require_admin),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_read_db),
 ) -> AdminStatsResponse:
     """Aggregates system statistics from PostgreSQL tables."""
     # 1. Document Lifecycle Counts
@@ -145,7 +145,7 @@ async def list_audit_logs(
     limit: int = 50,
     offset: int = 0,
     current_user: User = Depends(require_admin),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_read_db),
 ) -> List[AuditLogResponse]:
     """Retrieves paginated audit log events for compliance and security auditing."""
     stmt = select(AuditLog)
@@ -167,7 +167,7 @@ async def list_audit_logs(
 )
 async def list_admin_users(
     current_user: User = Depends(require_admin),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_read_db),
 ) -> List[UserAdminResponse]:
     """Returns all users ordered by creation date."""
     stmt = select(User).order_by(User.created_at.desc())

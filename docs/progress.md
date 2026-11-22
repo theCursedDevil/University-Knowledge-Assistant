@@ -11,12 +11,12 @@
 
 | Metric | Status | Details |
 |---|:---:|---|
-| **Current Phase** | **Phase 8 (Keycloak OAuth 2.0 / OIDC, RBAC & Role-Restricted Documents)** | Completed: Self-hosted Keycloak integration (`UKA-8`, `UKA-37`), Authorization Code Flow with PKCE (`S256`), RS256 JWT signature validation using Keycloak JWKS, `exp` & `iss` claim enforcement, Just-in-Time (JIT) PostgreSQL user provisioning, RBAC (`student`, `faculty`, `admin`), session rotation via `/auth/refresh`, logout via `/auth/logout`, secure httpOnly cookie session management, Next.js PKCE authentication flow, and role-restricted document visibility & Qdrant retrieval isolation (`UKA-38`). |
-| **Completed Phases** | **Phases 1, 2, 3, 4, 5, 6, 7 & 8** | Planning, Git/JIRA Setup, Backend Skeleton, PostgreSQL Schema, Document Pipeline, Core RAG, Citations, Conversational Frontend, Full End-to-End Integration, Keycloak OAuth 2.0 / OIDC, and Role-Restricted Documents (`UKA-16` through `UKA-38`). |
-| **Pending Phases** | **Phases 9–14** | Database replication sync & locking, Docker Compose 9-service stack, K8s manifests, CI/CD pipeline, and demo scripts. |
-| **Blocked Items** | **None** | All integrations (GitHub MCP, JIRA TWG, MinIO, PostgreSQL, Qdrant, Keycloak, Groq LLM, Next.js 14, SSE Streaming) verified and operational. |
-| **Active JIRA Board** | [`UKA`](https://nightbladeninja.atlassian.net/jira/software/projects/UKA/boards) | 14 Epics created; 18 frontend screens connected; 117 backend tests + 20 frontend routes verified. |
-| **Latest Test Status** | **PASSED** | 117/117 backend tests passing + Next.js production build (`20/20` static/dynamic routes) passing. |
+| **Current Phase** | **Phase 9 (PostgreSQL Primary & Read Replicas with Round-Robin ReplicaRouter)** | Completed: PostgreSQL 16 multi-replica architecture with 1 primary database and 2 read standbys using WAL streaming replication (`UKA-10`, `UKA-40`), separate primary/replica connections, round-robin `ReplicaRouter`, primary-only write routing, read balancing, connection health probes, graceful fallback to primary when replicas are unavailable, read-only standby enforcement, and active replication stream telemetry. |
+| **Completed Phases** | **Phases 1, 2, 3, 4, 5, 6, 7, 8 & 9 (Part 1)** | Planning, Git/JIRA Setup, Backend Skeleton, PostgreSQL Schema, Document Pipeline, Core RAG, Citations, Conversational Frontend, Full End-to-End Integration, Keycloak OAuth 2.0 / OIDC, Role-Restricted Documents, Security Hardening, and PostgreSQL Multi-Replica Streaming Replication (`UKA-16` through `UKA-40`). |
+| **Pending Phases** | **Phases 9 (Part 2: Redis Caching & Locking) – 14** | Redis query caching and optimistic locking, Docker Compose 9-service stack, K8s manifests, CI/CD pipeline, and demo scripts. |
+| **Blocked Items** | **None** | All integrations (GitHub MCP, JIRA TWG, MinIO, PostgreSQL Primary + 2 Standbys, Qdrant, Keycloak, Groq LLM, Next.js 14, SSE Streaming) verified and operational. |
+| **Active JIRA Board** | [`UKA`](https://nightbladeninja.atlassian.net/jira/software/projects/UKA/boards) | 14 Epics created; 18 frontend screens connected; 127 backend tests + 20 frontend routes verified. |
+| **Latest Test Status** | **PASSED** | 127/127 backend tests passing + Next.js production build (`20/20` static/dynamic routes) passing. |
 
 ---
 
@@ -90,6 +90,7 @@
 | `UKA-37` | Keycloak OAuth 2.0 / OIDC Authorization Code Flow with PKCE and RBAC | `UKA-8` | Must Have | ✅ **Done** |
 | `UKA-38` | Role-Restricted Document Visibility and Backend Retrieval Permissions | `UKA-8` | Must Have | ✅ **Done** |
 | `UKA-39` | System Security Hardening: Rate Limiting, Security Headers, CORS, and Least-Privilege DB Accounts | `UKA-8` | Must Have | ✅ **Done** |
+| `UKA-40` | PostgreSQL Primary and Two Read Replicas with Round-Robin ReplicaRouter | `UKA-10` | Must Have | ✅ **Done** |
 
 ---
 

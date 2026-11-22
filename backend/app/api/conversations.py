@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.app.core.auth_dev import get_current_user
 from backend.app.core.errors import NotFoundError, ForbiddenError
 from backend.app.core.logging import logger
-from backend.app.db.session import get_db, AsyncSessionLocal
+from backend.app.db.session import get_db, get_read_db, AsyncSessionLocal
 from backend.app.db.models import User, Conversation, Message
 from backend.app.rag.rag_service import rag_service
 from backend.app.core.rate_limit import check_llm_rate_limit
@@ -142,7 +142,7 @@ async def list_conversations(
     skip: int = Query(default=0, ge=0, description="Pagination offset."),
     limit: int = Query(default=50, ge=1, le=100, description="Pagination limit."),
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_read_db),
 ) -> List[ConversationResponse]:
     """Retrieves current user's conversations from PostgreSQL."""
     stmt = (
@@ -167,7 +167,7 @@ async def list_conversations(
 async def get_conversation(
     id: uuid.UUID,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_read_db),
 ) -> ConversationDetailResponse:
     """Fetches conversation thread and verifies ownership."""
     stmt = select(Conversation).where(Conversation.id == id)

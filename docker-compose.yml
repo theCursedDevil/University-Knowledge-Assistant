@@ -1,0 +1,141 @@
+services:
+  postgres-primary:
+    image: postgres:16-alpine
+    container_name: postgres-primary
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-university_assistant}
+    ports:
+      - "5432:5432"
+    command: >
+      postgres
+      -c wal_level=replica
+      -c max_wal_senders=10
+      -c max_replication_slots=10
+      -c hot_standby=on
+    volumes:
+      - postgres_primary_data:/var/lib/postgresql/data
+      - ./database/init-replication.sql:/docker-entrypoint-initdb.d/01-init-replication.sql:ro
+      - ./database/init-least-privilege.sql:/docker-entrypoint-initdb.d/02-init-least-privilege.sql:ro
+      - ./docker/postgres/primary-init.sh:/docker-entrypoint-initdb.d/00-primary-init.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-university_assistant}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - uka-network
+
+  postgres-replica-1:
+    image: postgres:16-alpine
+    container_name: postgres-replica-1
+    environment:
+      PRIMARY_HOST: postgres-primary
+      PRIMARY_PORT: 5432
+      PRIMARY_USER: ${POSTGRES_USER:-postgres}
+      REPL_USER: uka_replicator
+      REPL_PASSWORD: ${REPL_PASSWORD:-uka_replica_stream_password}
+      REPL_SLOT: replica_1_slot
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_replica_1_data:/var/lib/postgresql/data
+      - ./docker/postgres/replica-entrypoint.sh:/usr/local/bin/replica-entrypoint.sh:ro
+    entrypoint: ["/usr/local/bin/replica-entrypoint.sh"]
+    depends_on:
+      postgres-primary:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-university_assistant}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - uka-network
+
+  postgres-replica-2:
+    image: postgres:16-alpine
+    container_name: postgres-replica-2
+    environment:
+      PRIMARY_HOST: postgres-primary
+      PRIMARY_PORT: 5432
+      PRIMARY_USER: ${POSTGRES_USER:-postgres}
+      REPL_USER: uka_replicator
+      REPL_PASSWORD: ${REPL_PASSWORD:-uka_replica_stream_password}
+      REPL_SLOT: replica_2_slot
+    ports:
+      - "5434:5432"
+    volumes:
+      - postgres_replica_2_data:/var/lib/postgresql/data
+      - ./docker/postgres/replica-entrypoint.sh:/usr/local/bin/replica-entrypoint.sh:ro
+    entrypoint: ["/usr/local/bin/replica-entrypoint.sh"]
+    depends_on:
+      postgres-primary:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-university_assistant}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - uka-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - uka-network
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: qdrant
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    networks:
+      - uka-network
+
+  minio:
+    image: cgr.dev/chainguard/minio
+    container_name: minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    networks:
+      - uka-network
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:24.0.5
+    container_name: keycloak
+    command: start-dev --import-realm
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+    volumes:
+      - ./docker/keycloak/university-realm.json:/opt/keycloak/data/import/university-realm.json:ro
+    ports:
+      - "8080:8080"
+    networks:
+      - uka-network
+
+volumes:
+  postgres_primary_data:
+  postgres_replica_1_data:
+  postgres_replica_2_data:
+
+networks:
+  uka-network:
+    name: uka-network
+    driver: bridge
