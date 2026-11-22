@@ -41,7 +41,7 @@ async def process_document(
     document_id: uuid.UUID,
     session: Optional[AsyncSession] = None,
 ) -> ProcessingResult:
-    """Executes the end-to-end ingestion pipeline for a stored document.
+    """Executes the end-to-end ingestion pipeline for a stored document under a distributed lock.
 
     If session is not provided, manages an isolated database session.
     Guarantees atomic status updates and cleans up any partial vectors on failure.
@@ -53,11 +53,16 @@ async def process_document(
     Returns:
         ProcessingResult with final status ('ready' or 'failed') and indexing stats.
     """
-    if session is not None:
-        return await _execute_pipeline(document_id, session)
+    from backend.app.core.cache import async_distributed_lock, cache_client
 
-    async with AsyncSessionLocal() as isolated_session:
-        return await _execute_pipeline(document_id, isolated_session)
+    async with async_distributed_lock(f"document:{document_id}", expire_seconds=60.0, timeout_seconds=0.0):
+        if session is not None:
+            res = await _execute_pipeline(document_id, session)
+        else:
+            async with AsyncSessionLocal() as isolated_session:
+                res = await _execute_pipeline(document_id, isolated_session)
+        cache_client.invalidate_document_caches(document_id=str(document_id))
+        return res
 
 
 async def _execute_pipeline(

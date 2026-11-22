@@ -65,6 +65,31 @@ class ConflictError(AppException):
         )
 
 
+class LockContentionError(ConflictError):
+    """Raised when a distributed lock cannot be acquired due to concurrent operation (FR-CACHE-002)."""
+
+    def __init__(
+        self,
+        resource: str,
+        message: Optional[str] = None,
+        timeout: Optional[float] = None,
+    ):
+        msg = (
+            message
+            or f"Resource '{resource}' is currently locked by another concurrent operation. Please try again."
+        )
+        super().__init__(
+            message=msg,
+            details={
+                "code": "LOCK_CONTENTION",
+                "resource": resource,
+                "timeout_seconds": timeout,
+                "action_required": "retry_later",
+            },
+        )
+        self.code = "LOCK_CONTENTION"
+
+
 class ValidationError(AppException):
     """Raised when request payload fails semantic validation rules."""
 

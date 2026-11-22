@@ -105,11 +105,35 @@ class Settings(BaseSettings):
         description="Duration (seconds) during which subsequent reads from a user are routed to Primary after a write.",
     )
 
-    # Redis Cache & Distributed Locking
+    # Redis Cache & Distributed Locking (FR-CACHE-001, FR-CACHE-002, FR-CACHE-003)
     REDIS_HOST: str = Field(default="localhost")
     REDIS_PORT: int = Field(default=6379)
     REDIS_PASSWORD: Optional[str] = Field(default=None)
     REDIS_DB: int = Field(default=0)
+    CACHE_ENABLED: bool = Field(
+        default=True,
+        description="Enables Redis read-through caching for document listing, details, and admin stats.",
+    )
+    CACHE_DEFAULT_TTL_SECONDS: int = Field(
+        default=60,
+        description="Default expiration time for cached read data in seconds (FR-CACHE-003).",
+    )
+    CACHE_DOCUMENTS_LIST_TTL: int = Field(
+        default=60,
+        description="Expiration time in seconds for document list cache (FR-CACHE-001).",
+    )
+    CACHE_ADMIN_STATS_TTL: int = Field(
+        default=60,
+        description="Expiration time in seconds for admin dashboard stats cache.",
+    )
+    LOCK_DEFAULT_TIMEOUT_SECONDS: float = Field(
+        default=5.0,
+        description="Maximum seconds to wait to acquire a distributed lock before timing out.",
+    )
+    LOCK_DEFAULT_EXPIRE_SECONDS: float = Field(
+        default=30.0,
+        description="Lock expiration TTL (seconds) to prevent deadlock if process dies.",
+    )
 
     # Qdrant Vector Database
     QDRANT_HOST: str = Field(default="localhost")

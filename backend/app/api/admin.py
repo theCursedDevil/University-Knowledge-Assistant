@@ -9,17 +9,20 @@ Endpoints:
 import uuid
 from datetime import datetime
 from typing import List, Dict, Any, Optional
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, status, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.app.core.config import get_settings
 from backend.app.core.auth_dev import require_admin
 from backend.app.core.errors import NotFoundError, ForbiddenError
 from backend.app.core.logging import logger
+from backend.app.core.cache import cache_client
 from backend.app.db.session import get_db, get_read_db, replica_router
 from backend.app.db.models import User, Document, DocumentChunkMeta, Conversation, Message, AuditLog
 
+settings = get_settings()
 router = APIRouter(prefix="/admin", tags=["Admin"])
 
 
@@ -82,10 +85,19 @@ class UpdateUserRoleRequest(BaseModel):
     description="Returns aggregate counts, category distribution, and recent audit trail events. Administrator role required.",
 )
 async def get_admin_stats(
+    response: Response,
     current_user: User = Depends(require_admin),
     db: AsyncSession = Depends(get_read_db),
 ) -> AdminStatsResponse:
-    """Aggregates system statistics from PostgreSQL tables."""
+    """Aggregates system statistics from PostgreSQL tables with Redis caching."""
+    cache_key = cache_client.build_admin_stats_key()
+    cached = cache_client.get(cache_key)
+    if cached is not None:
+        response.headers["X-Cache"] = "HIT"
+        logger.debug("[CACHE] Hit for admin stats '%s'", cache_key)
+        return AdminStatsResponse.model_validate(cached)
+
+    response.headers["X-Cache"] = "MISS"
     # 1. Document Lifecycle Counts
     total_docs = await db.scalar(select(func.count(Document.id))) or 0
     processed_docs = await db.scalar(select(func.count(Document.id)).where(Document.status == "ready")) or 0
@@ -115,7 +127,7 @@ async def get_admin_stats(
     audit_res = await db.execute(audit_stmt)
     audit_logs = list(audit_res.scalars().all())
 
-    return AdminStatsResponse(
+    stats_resp = AdminStatsResponse(
         total_documents=total_docs,
         processed_documents=processed_docs,
         failed_documents=failed_docs,
@@ -130,6 +142,12 @@ async def get_admin_stats(
         documents_by_status=docs_by_status,
         recent_audit_logs=audit_logs,
     )
+    cache_client.set(
+        cache_key,
+        stats_resp.model_dump(mode="json"),
+        ttl=settings.CACHE_ADMIN_STATS_TTL,
+    )
+    return stats_resp
 
 
 @router.get(
@@ -216,6 +234,7 @@ async def update_user_role(
     await db.commit()
     await db.refresh(user)
     replica_router.record_user_write(current_user.id)
+    cache_client.invalidate_admin_stats()
 
     logger.info("Updated role for user %s (%s -> %s)", user.id, old_role, target_role)
     return UserAdminResponse.model_validate(user)
