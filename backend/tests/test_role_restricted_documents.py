@@ -35,7 +35,7 @@ SAMPLE_PDF_BYTES = b"%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\ntrailer\n<
 def test_user_profile_and_roles_array(client: TestClient):
     """Verifies that GET /me returns the user profile with roles list populated."""
     client.cookies.clear()
-    
+
     # 1. Student
     resp = client.get("/me", headers={"X-Dev-Role": "student", "X-Dev-Email": "student_test@university.edu"})
     assert resp.status_code == 200

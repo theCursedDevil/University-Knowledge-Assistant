@@ -16,7 +16,6 @@ import uuid
 import pytest
 from starlette.testclient import TestClient
 
-from backend.app.main import create_app
 from backend.app.core.config import get_settings
 from backend.app.core.cache import cache_client, DistributedLock, distributed_lock, async_distributed_lock
 from backend.app.core.errors import LockContentionError

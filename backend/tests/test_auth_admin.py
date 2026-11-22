@@ -1,8 +1,6 @@
 """Tests for authentication, profile (/me), admin analytics, user management, and metadata editing."""
 
 import io
-import uuid
-import pytest
 from starlette.testclient import TestClient
 
 from backend.tests.test_pipeline import generate_test_pdf

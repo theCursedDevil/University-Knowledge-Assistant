@@ -13,20 +13,16 @@ Validates:
 import asyncio
 import uuid
 import pytest
-import pytest_asyncio
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from starlette.testclient import TestClient
 
 from backend.app.core.config import get_settings
-from backend.app.db.router import ReplicaRouter
 from backend.app.db.session import (
     primary_engine,
     replica1_engine,
     replica2_engine,
     PrimarySessionLocal,
-    Replica1SessionLocal,
-    Replica2SessionLocal,
     replica_router,
     check_db_connection,
 )

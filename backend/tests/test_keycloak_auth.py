@@ -23,7 +23,6 @@ import httpx
 import jwt
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives import serialization
-import pytest
 from starlette.testclient import TestClient
 
 from backend.app.core.config import get_settings

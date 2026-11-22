@@ -125,7 +125,7 @@ export default function AnalyticsDashboardPage() {
               {/* Successfully Processed */}
               <div className="p-5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-2xs space-y-2">
                 <div className="flex items-center justify-between text-zinc-400 text-[11px] font-semibold uppercase tracking-wider">
-                  <span>Processed ('ready')</span>
+                  <span>Processed (&apos;ready&apos;)</span>
                   <CheckCircle2 className="w-4 h-4 text-emerald-500" />
                 </div>
                 <div className="text-2xl font-bold text-emerald-600 dark:text-emerald-400 font-mono">
@@ -332,7 +332,7 @@ export default function AnalyticsDashboardPage() {
 
               {filteredAuditLogs.length === 0 ? (
                 <p className="text-xs text-zinc-400 py-6 text-center">
-                  No audit logs matching filter '{auditFilter}'.
+                  No audit logs matching filter &apos;{auditFilter}&apos;.
                 </p>
               ) : (
                 <div className="space-y-2.5 max-h-96 overflow-y-auto pr-1 divide-y divide-zinc-100 dark:divide-zinc-800">

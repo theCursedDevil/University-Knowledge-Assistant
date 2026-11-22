@@ -21,9 +21,7 @@ import uuid
 import fitz
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import select
 
-from backend.app.db.models import Document, DocumentChunkMeta, AuditLog, User, Conversation, Message
 
 
 def generate_admin_test_pdf(title: str = "University Policy") -> bytes:
@@ -231,7 +229,7 @@ def test_admin_document_lifecycle_and_audit_provenance(client: TestClient):
     assert del_resp.status_code == 200
 
     # 6. Verify audit logs were created for each step
-    audit_resp = client.get(f"/admin/audit-logs?entity=documents&limit=20", headers={"X-Dev-Role": "admin"})
+    audit_resp = client.get("/admin/audit-logs?entity=documents&limit=20", headers={"X-Dev-Role": "admin"})
     assert audit_resp.status_code == 200
     recent_actions = [log["action"] for log in audit_resp.json() if log.get("entity_id") == doc_id]
     assert "DOCUMENT_UPLOAD" in recent_actions

@@ -18,11 +18,10 @@ from sqlalchemy import select
 
 from backend.app.core.config import get_settings
 from backend.app.db.models import Document, DocumentChunkMeta, AuditLog
-from backend.app.rag.extractor import clean_text, detect_section_header, extract_text_from_pdf, ExtractedPage
-from backend.app.rag.chunker import chunk_document_pages, create_text_splitter, DocumentChunk
+from backend.app.rag.extractor import clean_text, detect_section_header, extract_text_from_pdf
+from backend.app.rag.chunker import chunk_document_pages, DocumentChunk
 from backend.app.rag.embeddings import embedding_client
 from backend.app.rag.vector_store import vector_store
-from backend.app.rag.pipeline import process_document
 
 settings = get_settings()
 

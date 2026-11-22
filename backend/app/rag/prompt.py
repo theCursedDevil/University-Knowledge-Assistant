@@ -6,7 +6,6 @@ Mitigates prompt injection by treating retrieved document text strictly as data.
 """
 
 from typing import List, Dict, Optional, Tuple
-from pydantic import BaseModel, Field
 
 from backend.app.rag.vector_store import SearchResult
 
