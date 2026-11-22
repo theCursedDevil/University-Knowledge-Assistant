@@ -21,12 +21,13 @@ from fastapi import (
     Query,
 )
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.core.config import get_settings
 from backend.app.core.errors import (
     AppException,
+    ForbiddenError,
     NotFoundError,
     ValidationError,
 )
@@ -44,10 +45,11 @@ router = APIRouter()
 
 
 class DocumentUpdateRequest(BaseModel):
-    """Schema for updating document title and category."""
+    """Schema for updating document title, category, and access restriction."""
 
     title: Optional[str] = Field(default=None, min_length=2, max_length=255)
     category: Optional[str] = Field(default=None, min_length=2, max_length=100)
+    role_restriction: Optional[str] = Field(default=None, description="Role restriction: 'all', 'student', 'faculty', 'admin', or empty string to clear.")
 
 
 class DocumentPreviewResponse(BaseModel):
@@ -56,6 +58,7 @@ class DocumentPreviewResponse(BaseModel):
     id: uuid.UUID
     title: str
     category: str
+    role_restriction: Optional[str] = None
     status: str
     storage_path: str
     page_count: int
@@ -68,6 +71,7 @@ class DocumentResponse(BaseModel):
     id: uuid.UUID
     title: str
     category: str
+    role_restriction: Optional[str] = None
     storage_path: str
     uploaded_by: Optional[uuid.UUID] = None
     status: str
@@ -84,6 +88,7 @@ class DocumentUploadResponse(BaseModel):
     id: uuid.UUID
     title: str
     category: str
+    role_restriction: Optional[str] = None
     storage_path: str
     status: str
     version: int
@@ -112,6 +117,21 @@ class DocumentChunkResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+def check_document_access(document: Document, user: User) -> None:
+    """Validates that the user's role permits accessing the document (FR-DOC-010)."""
+    if user.role == "admin":
+        return
+    restr = (document.role_restriction or "").lower().strip()
+    if not restr or restr in ("all", "public", "student"):
+        return
+    if restr == "faculty" and user.role == "faculty":
+        return
+    raise ForbiddenError(
+        message=f"Access denied. This document is restricted to {restr} members.",
+        details={"document_id": str(document.id), "required_role": restr, "user_role": user.role},
+    )
+
+
 @router.post(
     "/documents",
     response_model=DocumentUploadResponse,
@@ -125,6 +145,7 @@ async def upload_document(
     file: UploadFile = File(..., description="PDF document file to upload."),
     category: str = Form(..., description="Document category (e.g. 'Academic', 'Admissions', 'Hostel', 'Regulations')."),
     title: Optional[str] = Form(default=None, description="Optional custom document title."),
+    role_restriction: Optional[str] = Form(default=None, description="Optional role restriction: 'all', 'student', 'faculty', 'admin'."),
     auto_process: bool = Query(default=True, description="Automatically trigger processing pipeline in background."),
     current_user: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
@@ -168,12 +189,22 @@ async def upload_document(
             details={"header": content[:8].decode("latin-1", errors="replace")},
         )
 
-    # 5. Generate Unique Identifiers & Storage Path
+    # 5. Validate Role Restriction
+    sanitized_role_restr = None
+    if role_restriction and role_restriction.strip():
+        sanitized_role_restr = role_restriction.strip().lower()
+        if sanitized_role_restr not in ("all", "student", "faculty", "admin"):
+            raise ValidationError(
+                message="Invalid role_restriction. Allowed values are 'all', 'student', 'faculty', 'admin'.",
+                details={"role_restriction": role_restriction},
+            )
+
+    # 6. Generate Unique Identifiers & Storage Path
     doc_id = uuid.uuid4()
     sanitized_filename = re.sub(r"[^a-zA-Z0-9_.-]", "_", filename)
     object_key = f"documents/{doc_id}/{sanitized_filename}"
 
-    # 6. Upload to MinIO Object Storage
+    # 7. Upload to MinIO Object Storage
     storage_path = storage_service.upload_file(
         object_name=object_key,
         data=content,
@@ -181,12 +212,13 @@ async def upload_document(
         content_type="application/pdf",
     )
 
-    # 7. Record Metadata in PostgreSQL with Atomic Rollback Protection
+    # 8. Record Metadata in PostgreSQL with Atomic Rollback Protection
     doc_title = title.strip() if title and title.strip() else filename
     document = Document(
         id=doc_id,
         title=doc_title,
         category=category.strip(),
+        role_restriction=sanitized_role_restr,
         storage_path=storage_path,
         uploaded_by=current_user.id,
         status="processing",
@@ -201,6 +233,7 @@ async def upload_document(
         details={
             "filename": filename,
             "category": category,
+            "role_restriction": sanitized_role_restr,
             "size_bytes": file_size,
             "storage_path": storage_path,
         },
@@ -221,11 +254,12 @@ async def upload_document(
     if auto_process:
         background_tasks.add_task(process_document, doc_id)
 
-    logger.info("Document successfully uploaded: id=%s title='%s' category='%s'", doc_id, doc_title, category)
+    logger.info("Document successfully uploaded: id=%s title='%s' category='%s' role_restriction='%s'", doc_id, doc_title, category, sanitized_role_restr)
     return DocumentUploadResponse(
         id=document.id,
         title=document.title,
         category=document.category,
+        role_restriction=document.role_restriction,
         storage_path=document.storage_path,
         status=document.status,
         version=document.version,
@@ -266,11 +300,13 @@ async def get_document_chunks(
     """Retrieves chunk metadata associated with the document from PostgreSQL."""
     doc_stmt = select(Document).where(Document.id == id)
     doc_res = await db.execute(doc_stmt)
-    if not doc_res.scalar_one_or_none():
+    doc = doc_res.scalar_one_or_none()
+    if not doc:
         raise NotFoundError(
             message=f"Document with ID '{id}' not found.",
             details={"document_id": str(id)},
         )
+    check_document_access(doc, current_user)
 
     stmt = (
         select(DocumentChunkMeta)
@@ -296,10 +332,27 @@ async def list_documents(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> List[DocumentResponse]:
-    """Retrieves document records from PostgreSQL."""
+    """Retrieves document records from PostgreSQL with role-based visibility filtering."""
     query = select(Document)
     if category:
         query = query.where(Document.category == category)
+
+    # Server-side role visibility filter (FR-DOC-010)
+    if current_user.role == "student":
+        query = query.where(
+            or_(
+                Document.role_restriction.is_(None),
+                Document.role_restriction.in_(("all", "public", "student")),
+            )
+        )
+    elif current_user.role == "faculty":
+        query = query.where(
+            or_(
+                Document.role_restriction.is_(None),
+                Document.role_restriction != "admin",
+            )
+        )
+    # Admin sees all documents
 
     query = query.order_by(Document.created_at.desc()).offset(skip).limit(limit)
     result = await db.execute(query)
@@ -329,6 +382,7 @@ async def get_document(
             message=f"Document with ID '{id}' not found.",
             details={"document_id": str(id)},
         )
+    check_document_access(doc, current_user)
     return DocumentResponse.model_validate(doc)
 
 
@@ -354,6 +408,7 @@ async def preview_document(
             message=f"Document with ID '{id}' not found.",
             details={"document_id": str(id)},
         )
+    check_document_access(doc, current_user)
 
     pages = []
     try:
@@ -366,6 +421,7 @@ async def preview_document(
         id=doc.id,
         title=doc.title,
         category=doc.category,
+        role_restriction=doc.role_restriction,
         status=doc.status,
         storage_path=doc.storage_path,
         page_count=len(pages),
@@ -406,6 +462,16 @@ async def update_document(
         changes["old_category"] = doc.category
         doc.category = payload.category.strip()
         changes["new_category"] = doc.category
+    if payload.role_restriction is not None:
+        restr_val = payload.role_restriction.strip().lower() if payload.role_restriction.strip() else None
+        if restr_val and restr_val not in ("all", "student", "faculty", "admin"):
+            raise ValidationError(
+                message="Invalid role_restriction. Allowed values are 'all', 'student', 'faculty', 'admin'.",
+                details={"role_restriction": payload.role_restriction},
+            )
+        changes["old_role_restriction"] = doc.role_restriction
+        doc.role_restriction = restr_val
+        changes["new_role_restriction"] = doc.role_restriction
 
     if changes:
         audit = AuditLog(
@@ -500,11 +566,12 @@ async def search_documents(
     search_request: DocumentSearchRequest,
     current_user: User = Depends(get_current_user),
 ) -> List[SearchResult]:
-    """Retrieves top-k relevant chunks from Qdrant matching the search query."""
+    """Retrieves top-k relevant chunks from Qdrant matching the search query, filtered by user role permissions."""
     return vector_store.search(
         query=search_request.query,
         limit=search_request.limit,
         score_threshold=search_request.score_threshold,
         filter_category=search_request.category,
         filter_document_id=search_request.document_id,
+        user_role=current_user.role,
     )

@@ -29,6 +29,7 @@ class SearchResult(BaseModel):
     section: Optional[str] = Field(default=None, description="Section heading context.")
     score: float = Field(..., description="Cosine similarity score (0.0 to 1.0).")
     category: Optional[str] = Field(default=None, description="Document category.")
+    role_restriction: Optional[str] = Field(default=None, description="Role restriction ('faculty', 'admin', or None).")
 
 
 class QdrantVectorStore:
@@ -88,6 +89,11 @@ class QdrantVectorStore:
                     field_name="category",
                     field_schema=models.PayloadSchemaType.KEYWORD,
                 )
+                self.client.create_payload_index(
+                    collection_name=self.collection_name,
+                    field_name="role_restriction",
+                    field_schema=models.PayloadSchemaType.KEYWORD,
+                )
                 logger.info("Qdrant collection '%s' created with payload indexes.", self.collection_name)
         except Exception as exc:
             logger.error("Failed to verify/create Qdrant collection '%s': %s", self.collection_name, exc)
@@ -100,6 +106,7 @@ class QdrantVectorStore:
         category: str,
         chunks: List[DocumentChunk],
         embeddings: List[List[float]],
+        role_restriction: Optional[str] = None,
     ) -> List[str]:
         """Upserts document chunks and embeddings into Qdrant.
 
@@ -113,6 +120,7 @@ class QdrantVectorStore:
         - section: Section heading
         - document_name: Document title
         - chunk_id: Vector point identifier
+        - role_restriction: Access control role restriction ('faculty', 'admin', or '')
 
         Returns:
             List of vector_id UUID strings corresponding to the upserted points.
@@ -126,6 +134,7 @@ class QdrantVectorStore:
 
         points: List[models.PointStruct] = []
         vector_ids: List[str] = []
+        norm_restriction = (role_restriction or "").lower().strip()
 
         for chunk, embedding in zip(chunks, embeddings):
             # Deterministic UUID prevents duplicate points under repeated execution
@@ -140,6 +149,8 @@ class QdrantVectorStore:
                 "section": chunk.section,
                 "document_name": document_title,
                 "chunk_id": vector_id,
+                # Role-based access control restriction:
+                "role_restriction": norm_restriction,
                 # Context & backward compatibility fields:
                 "text": chunk.text,
                 "document_title": document_title,
@@ -216,11 +227,14 @@ class QdrantVectorStore:
         score_threshold: Optional[float] = None,
         filter_category: Optional[str] = None,
         filter_document_id: Optional[uuid.UUID] = None,
+        user_role: Optional[str] = None,
     ) -> List[SearchResult]:
-        """Executes top-k cosine similarity search against Qdrant collection."""
+        """Executes top-k cosine similarity search against Qdrant collection with role-based filtering."""
         self.ensure_collection_exists()
 
         must_conditions = []
+        must_not_conditions = []
+
         if filter_category:
             must_conditions.append(
                 models.FieldCondition(
@@ -236,7 +250,35 @@ class QdrantVectorStore:
                 )
             )
 
-        query_filter = models.Filter(must=must_conditions) if must_conditions else None
+        # Enforce server-side role-based chunk visibility (FR-DOC-010, NFR-SEC-009)
+        role = (user_role or "").lower().strip()
+        if role == "student":
+            must_not_conditions.append(
+                models.FieldCondition(
+                    key="role_restriction",
+                    match=models.MatchValue(value="faculty"),
+                )
+            )
+            must_not_conditions.append(
+                models.FieldCondition(
+                    key="role_restriction",
+                    match=models.MatchValue(value="admin"),
+                )
+            )
+        elif role == "faculty":
+            must_not_conditions.append(
+                models.FieldCondition(
+                    key="role_restriction",
+                    match=models.MatchValue(value="admin"),
+                )
+            )
+
+        query_filter = None
+        if must_conditions or must_not_conditions:
+            query_filter = models.Filter(
+                must=must_conditions if must_conditions else None,
+                must_not=must_not_conditions if must_not_conditions else None,
+            )
 
         try:
             if hasattr(self.client, "query_points"):
@@ -272,6 +314,7 @@ class QdrantVectorStore:
                         section=payload.get("section"),
                         score=round(float(hit.score), 4),
                         category=payload.get("category"),
+                        role_restriction=payload.get("role_restriction"),
                     )
                 )
             return results
@@ -286,6 +329,7 @@ class QdrantVectorStore:
         score_threshold: Optional[float] = None,
         filter_category: Optional[str] = None,
         filter_document_id: Optional[uuid.UUID] = None,
+        user_role: Optional[str] = None,
     ) -> List[SearchResult]:
         """Encodes query with all-MiniLM-L6-v2 and retrieves top-k most similar chunks."""
         from backend.app.rag.embeddings import embedding_client
@@ -297,6 +341,7 @@ class QdrantVectorStore:
             score_threshold=score_threshold,
             filter_category=filter_category,
             filter_document_id=filter_document_id,
+            user_role=user_role,
         )
 
 

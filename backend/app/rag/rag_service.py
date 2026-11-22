@@ -57,8 +57,9 @@ class RAGService:
         confidence_threshold: Optional[float] = None,
         filter_category: Optional[str] = None,
         session: Optional[AsyncSession] = None,
+        user_role: Optional[str] = None,
     ) -> RAGResponse:
-        """Executes the full RAG pipeline for a user inquiry.
+        """Executes the full RAG pipeline for a user inquiry with role-restricted chunk visibility.
 
         Workflow:
         1. Embed user question & retrieve top-k chunks from Qdrant via cosine similarity.
@@ -76,6 +77,7 @@ class RAGService:
             confidence_threshold: Minimum cosine similarity threshold (default: 0.30).
             filter_category: Optional category filter.
             session: Optional active AsyncSession for PostgreSQL citation lookup.
+            user_role: Optional user role for server-side chunk filtering ('student', 'faculty', 'admin').
 
         Returns:
             RAGResponse object with grounded answer and citations.
@@ -86,6 +88,7 @@ class RAGService:
             top_k=top_k,
             confidence_threshold=confidence_threshold,
             filter_category=filter_category,
+            user_role=user_role,
         )
 
         # Step 3: Check if retrieved content is sufficiently relevant
@@ -153,11 +156,12 @@ class RAGService:
         confidence_threshold: Optional[float] = None,
         filter_category: Optional[str] = None,
         session: Optional[AsyncSession] = None,
+        user_role: Optional[str] = None,
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """Executes the RAG pipeline with token-by-token streaming (FR-CHAT-002, Prompt 12).
 
         Workflow:
-        1. Embed user question & retrieve top-k chunks from Qdrant via cosine similarity.
+        1. Embed user question & retrieve top-k chunks from Qdrant via cosine similarity with role filtering.
         2. Evaluate retrieval confidence against threshold.
         3. If insufficient, streams clear fallback message token-by-token.
         4. If sufficient, construct grounded prompt with anti-injection XML delimiters.
@@ -176,6 +180,7 @@ class RAGService:
             top_k=top_k,
             confidence_threshold=confidence_threshold,
             filter_category=filter_category,
+            user_role=user_role,
         )
 
         # Step 3: Check if retrieved content is sufficiently relevant

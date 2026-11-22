@@ -308,6 +308,7 @@ async def post_message(
                         question=user_content,
                         conversation_history=history_payload,
                         session=session,
+                        user_role=current_user.role,
                     ):
                         if event["type"] == "token":
                             buffered_tokens.append(event["token"])
@@ -379,6 +380,7 @@ async def post_message(
         question=user_content,
         conversation_history=history_payload,
         session=db,
+        user_role=current_user.role,
     )
 
     # 5. Save completed assistant message and citation data

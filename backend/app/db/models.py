@@ -86,6 +86,9 @@ class Document(Base):
     status: Mapped[str] = mapped_column(
         String(50), nullable=False, default="processing"
     )
+    role_restriction: Mapped[Optional[str]] = mapped_column(
+        String(50), nullable=True, default=None, index=True
+    )
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
@@ -108,6 +111,10 @@ class Document(Base):
     __table_args__ = (
         CheckConstraint(
             "status IN ('processing', 'ready', 'indexed', 'failed')", name="ck_document_status"
+        ),
+        CheckConstraint(
+            "role_restriction IS NULL OR role_restriction IN ('all', 'student', 'faculty', 'admin')",
+            name="ck_document_role_restriction",
         ),
     )
 

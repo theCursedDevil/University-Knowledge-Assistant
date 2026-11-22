@@ -51,4 +51,5 @@ async def query_rag(
         confidence_threshold=request.confidence_threshold,
         filter_category=request.category,
         session=db,
+        user_role=current_user.role,
     )

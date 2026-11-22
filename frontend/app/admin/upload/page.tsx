@@ -24,6 +24,7 @@ export default function DocumentUploadPage() {
   const [file, setFile] = useState<File | null>(null);
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState("Academic");
+  const [roleRestriction, setRoleRestriction] = useState("all");
   const [autoIndex, setAutoIndex] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -81,6 +82,9 @@ export default function DocumentUploadPage() {
       formData.append("file", file);
       formData.append("title", title.trim());
       formData.append("category", category);
+      if (roleRestriction && roleRestriction !== "all") {
+        formData.append("role_restriction", roleRestriction);
+      }
 
       // 1. Upload to FastAPI
       const doc = await uploadDocument(formData, !autoIndex);
@@ -106,6 +110,8 @@ export default function DocumentUploadPage() {
   const handleReset = () => {
     setFile(null);
     setTitle("");
+    setCategory("Academic");
+    setRoleRestriction("all");
     setUploadProgress(0);
     setStageMessage("");
     setUploadedDoc(null);
@@ -251,8 +257,8 @@ export default function DocumentUploadPage() {
             </div>
 
             {/* Metadata Fields */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-1.5">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="space-y-1.5 sm:col-span-1">
                 <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
                   Official Document Title
                 </label>
@@ -283,6 +289,22 @@ export default function DocumentUploadPage() {
                   <option value="Admissions">Admissions</option>
                   <option value="Regulations">Regulations</option>
                   <option value="General">General</option>
+                </select>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                  Role Restriction (RBAC)
+                </label>
+                <select
+                  value={roleRestriction}
+                  onChange={(e) => setRoleRestriction(e.target.value)}
+                  disabled={isUploading}
+                  className="w-full px-3 py-2 text-xs rounded-md border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 focus:outline-hidden focus:border-accent disabled:opacity-50 cursor-pointer"
+                >
+                  <option value="all">Public (All Users)</option>
+                  <option value="faculty">Faculty Only (Faculty & Admin)</option>
+                  <option value="admin">Admin Only (Administrative)</option>
                 </select>
               </div>
             </div>

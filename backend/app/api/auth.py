@@ -12,7 +12,7 @@ Endpoints:
 
 import uuid
 from datetime import datetime
-from typing import Optional
+from typing import List, Optional
 from fastapi import APIRouter, Depends, status, Query, Request, Response
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -42,9 +42,26 @@ class UserResponse(BaseModel):
     name: str
     email: str
     role: str
+    roles: List[str] = Field(default_factory=list, description="Active user realm and application roles.")
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+def to_user_response(user: User) -> UserResponse:
+    """Constructs UserResponse ensuring both primary role and roles list are populated."""
+    roles = [user.role]
+    if user.role == "admin" and "faculty" not in roles:
+        roles.append("faculty")
+    return UserResponse(
+        id=user.id,
+        oauth_sub=user.oauth_sub,
+        name=user.name,
+        email=user.email,
+        role=user.role,
+        roles=roles,
+        created_at=user.created_at,
+    )
 
 
 class LoginRequest(BaseModel):
@@ -96,7 +113,7 @@ async def get_me(
     current_user: User = Depends(get_current_user),
 ) -> UserResponse:
     """Returns the authenticated user's record from PostgreSQL."""
-    return UserResponse.model_validate(current_user)
+    return to_user_response(current_user)
 
 
 @router.get(
@@ -168,7 +185,7 @@ async def exchange_token(
 
     logger.info("[AUTH] Completed PKCE token exchange for user=%s role=%s", user.email, user.role)
     return LoginResponse(
-        user=UserResponse.model_validate(user),
+        user=to_user_response(user),
         access_token=access_token,
         token_type="bearer",
     )
@@ -229,7 +246,7 @@ async def refresh_session(
     )
 
     return LoginResponse(
-        user=UserResponse.model_validate(user),
+        user=to_user_response(user),
         access_token=access_token,
         token_type="bearer",
     )
@@ -305,7 +322,7 @@ async def login(
 
     logger.info("User logged in: id=%s email=%s role=%s", user.id, user.email, user.role)
     return LoginResponse(
-        user=UserResponse.model_validate(user),
+        user=to_user_response(user),
         access_token=token,
         token_type="bearer",
     )
