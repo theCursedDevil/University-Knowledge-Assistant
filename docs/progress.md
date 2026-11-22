@@ -11,12 +11,12 @@
 
 | Metric | Status | Details |
 |---|:---:|---|
-| **Current Phase** | **Phase 8 (Keycloak OAuth 2.0 / OIDC & RBAC)** | Completed: Self-hosted Keycloak integration (`UKA-8`, `UKA-37`), Authorization Code Flow with PKCE (`S256`), RS256 JWT signature validation using Keycloak JWKS, `exp` & `iss` claim enforcement, Just-in-Time (JIT) PostgreSQL user provisioning, RBAC (`student`, `faculty`, `admin`), session rotation via `/auth/refresh`, logout via `/auth/logout`, secure httpOnly cookie session management, and Next.js PKCE authentication flow. |
-| **Completed Phases** | **Phases 1, 2, 3, 4, 5, 6, 7 & 8** | Planning, Git/JIRA Setup, Backend Skeleton, PostgreSQL Schema, Document Pipeline, Core RAG, Citations, Conversational Frontend, Full End-to-End Integration, and Keycloak OAuth 2.0 / OIDC (`UKA-16` through `UKA-37`). |
+| **Current Phase** | **Phase 8 (Keycloak OAuth 2.0 / OIDC, RBAC & Role-Restricted Documents)** | Completed: Self-hosted Keycloak integration (`UKA-8`, `UKA-37`), Authorization Code Flow with PKCE (`S256`), RS256 JWT signature validation using Keycloak JWKS, `exp` & `iss` claim enforcement, Just-in-Time (JIT) PostgreSQL user provisioning, RBAC (`student`, `faculty`, `admin`), session rotation via `/auth/refresh`, logout via `/auth/logout`, secure httpOnly cookie session management, Next.js PKCE authentication flow, and role-restricted document visibility & Qdrant retrieval isolation (`UKA-38`). |
+| **Completed Phases** | **Phases 1, 2, 3, 4, 5, 6, 7 & 8** | Planning, Git/JIRA Setup, Backend Skeleton, PostgreSQL Schema, Document Pipeline, Core RAG, Citations, Conversational Frontend, Full End-to-End Integration, Keycloak OAuth 2.0 / OIDC, and Role-Restricted Documents (`UKA-16` through `UKA-38`). |
 | **Pending Phases** | **Phases 9–14** | Database replication sync & locking, Docker Compose 9-service stack, K8s manifests, CI/CD pipeline, and demo scripts. |
 | **Blocked Items** | **None** | All integrations (GitHub MCP, JIRA TWG, MinIO, PostgreSQL, Qdrant, Keycloak, Groq LLM, Next.js 14, SSE Streaming) verified and operational. |
-| **Active JIRA Board** | [`UKA`](https://nightbladeninja.atlassian.net/jira/software/projects/UKA/boards) | 14 Epics created; 18 frontend screens connected; 102 backend tests + 20 frontend routes verified. |
-| **Latest Test Status** | **PASSED** | 102/102 backend tests passing + Next.js production build (`20/20` static/dynamic routes) passing. |
+| **Active JIRA Board** | [`UKA`](https://nightbladeninja.atlassian.net/jira/software/projects/UKA/boards) | 14 Epics created; 18 frontend screens connected; 109 backend tests + 20 frontend routes verified. |
+| **Latest Test Status** | **PASSED** | 109/109 backend tests passing + Next.js production build (`20/20` static/dynamic routes) passing. |
 
 ---
 
@@ -88,6 +88,7 @@
 | `UKA-35` | Connect Next.js Frontend to FastAPI Backend Endpoints | `UKA-7` | Must Have | ✅ **Done** |
 | `UKA-36` | Implement and Polish Admin Console (Document Mgmt, Analytics, Audit Trail) | `UKA-9` | Must Have | ✅ **Done** |
 | `UKA-37` | Keycloak OAuth 2.0 / OIDC Authorization Code Flow with PKCE and RBAC | `UKA-8` | Must Have | ✅ **Done** |
+| `UKA-38` | Role-Restricted Document Visibility and Backend Retrieval Permissions | `UKA-8` | Must Have | ✅ **Done** |
 
 ---
 
@@ -112,6 +113,7 @@
 | `TEST-FE-001` | Next.js 14 Build & Static Generation | ✅ **PASSED** | 20/20 routes compiled & statically generated with 0 TypeScript/ESLint errors. |
 | `TEST-E2E-001` | Full End-to-End Frontend/Backend Workflow | ✅ **PASSED** | 9-step integration verification passed (Auth -> Upload -> Processing -> Preview -> Metadata Edit -> Conversation -> SSE Streaming Q&A -> Citations -> Admin Stats -> Cascading Deletion). |
 | `TEST-AUTH-001` | Keycloak JWT Authentication & RBAC | ✅ **PASSED** | 14 tests passing (`GET /auth/config`, RS256 JWKS validation, exp/iss claims, 401 on expired/tampered/invalid, RBAC student/faculty/admin 403 enforcement, httpOnly cookie auth, PKCE token exchange, token rotation, and Keycloak logout revocation). |
+| `TEST-RBAC-DOC-001` | Role-Restricted Document Access & Qdrant Search Isolation | ✅ **PASSED** | 7 tests passing (`GET /me` role claims, upload restriction validation, student/faculty/admin list visibility, direct 403 access control on GET/preview/chunks, metadata update, Qdrant `must_not` search filter, and RAG Q&A isolation). |
 | `TEST-DB-001` | Multi-Replica Read-After-Write Sync | ⏳ Pending | Scheduled for Phase 9 (`UKA-10`). |
 | `TEST-CONC-001` | Optimistic Locking 409 Conflict | ⏳ Pending | Scheduled for Phase 9 (`UKA-10`). |
 | `TEST-DOCKER-001` | 9-Service Docker Compose Boot | ⏳ Pending | Scheduled for Phase 10 (`UKA-12`). |
