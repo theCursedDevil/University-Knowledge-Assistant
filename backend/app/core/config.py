@@ -101,7 +101,7 @@ class Settings(BaseSettings):
     # Keycloak OIDC Authentication
     KEYCLOAK_URL: str = Field(default="http://localhost:8080")
     KEYCLOAK_REALM: str = Field(default="university-realm")
-    KEYCLOAK_CLIENT_ID: str = Field(default="university-assistant-backend")
+    KEYCLOAK_CLIENT_ID: str = Field(default="university-assistant-client")
     KEYCLOAK_CLIENT_SECRET: Optional[str] = Field(default=None)
 
     # LLM API (Groq)

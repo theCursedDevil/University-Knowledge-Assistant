@@ -13,6 +13,7 @@ import {
   loginUser,
   fetchAdminUsers,
   updateAdminUserRole,
+  logoutBackend,
   ApiUser,
 } from "@/lib/api";
 
@@ -22,7 +23,8 @@ interface AuthContextType {
   switchRole: (newRole: Role) => void;
   isAuthenticated: boolean;
   login: (email: string, role?: Role, name?: string) => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void>;
+  loadUserFromBackend: (targetRole?: Role, targetEmail?: string) => Promise<void>;
   allUsers: UserProfile[];
   updateUserRole: (userId: string, newRole: Role) => Promise<{ success: boolean; error?: string }>;
   toggleUserStatus: (userId: string) => { success: boolean; error?: string };
@@ -160,10 +162,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const logout = () => {
+  const logout = async () => {
     setIsAuthenticated(false);
     localStorage.removeItem("uka_user_role");
     localStorage.removeItem("uka_user_email");
+    try {
+      await logoutBackend();
+    } catch {
+      // Ignore background logout network errors
+    }
   };
 
   // Admin user role update (W-18)
@@ -228,6 +235,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         isAuthenticated,
         login,
         logout,
+        loadUserFromBackend,
         allUsers,
         updateUserRole,
         toggleUserStatus,

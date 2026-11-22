@@ -11,12 +11,12 @@
 
 | Metric | Status | Details |
 |---|:---:|---|
-| **Current Phase** | **Phase 7 (Conversational Interface & Full Frontend-Backend Integration)** | Completed: Next.js 14 application layout (`UKA-31`), 18 complete screens (W-01 to W-18), 5 system states (S-1 to S-5), SSE token streaming chat interface (`UKA-32`), conversation history (`UKA-33`), citation inspector (`UKA-30`), admin console (`UKA-9`, `UKA-34`), and full end-to-end FastAPI integration across 16 core endpoints (`UKA-35`). |
-| **Completed Phases** | **Phases 1, 2, 3, 4, 5, 6 & 7** | Planning, Git/JIRA Setup, Backend Skeleton, PostgreSQL Schema, Document Pipeline, Core RAG, Citations, Conversational Frontend, and Full End-to-End Integration (`UKA-16` through `UKA-35`). |
-| **Pending Phases** | **Phases 8–14** | Keycloak OAuth 2.0 integration, database replication sync & locking, Docker Compose 9-service stack, K8s manifests, CI/CD pipeline, and demo scripts. |
-| **Blocked Items** | **None** | All integrations (GitHub MCP, JIRA TWG, MinIO, PostgreSQL, Qdrant, Groq LLM, Next.js 14, SSE Streaming) verified and operational. |
-| **Active JIRA Board** | [`UKA`](https://nightbladeninja.atlassian.net/jira/software/projects/UKA/boards) | 14 Epics created; 18 frontend screens connected; 71 backend tests + 19 frontend routes verified. |
-| **Latest Test Status** | **PASSED** | 88/88 backend tests passing + Next.js production build (`19/19` static/dynamic routes) passing + 9/9 end-to-end integration workflows verified. |
+| **Current Phase** | **Phase 8 (Keycloak OAuth 2.0 / OIDC & RBAC)** | Completed: Self-hosted Keycloak integration (`UKA-8`, `UKA-37`), Authorization Code Flow with PKCE (`S256`), RS256 JWT signature validation using Keycloak JWKS, `exp` & `iss` claim enforcement, Just-in-Time (JIT) PostgreSQL user provisioning, RBAC (`student`, `faculty`, `admin`), session rotation via `/auth/refresh`, logout via `/auth/logout`, secure httpOnly cookie session management, and Next.js PKCE authentication flow. |
+| **Completed Phases** | **Phases 1, 2, 3, 4, 5, 6, 7 & 8** | Planning, Git/JIRA Setup, Backend Skeleton, PostgreSQL Schema, Document Pipeline, Core RAG, Citations, Conversational Frontend, Full End-to-End Integration, and Keycloak OAuth 2.0 / OIDC (`UKA-16` through `UKA-37`). |
+| **Pending Phases** | **Phases 9–14** | Database replication sync & locking, Docker Compose 9-service stack, K8s manifests, CI/CD pipeline, and demo scripts. |
+| **Blocked Items** | **None** | All integrations (GitHub MCP, JIRA TWG, MinIO, PostgreSQL, Qdrant, Keycloak, Groq LLM, Next.js 14, SSE Streaming) verified and operational. |
+| **Active JIRA Board** | [`UKA`](https://nightbladeninja.atlassian.net/jira/software/projects/UKA/boards) | 14 Epics created; 18 frontend screens connected; 102 backend tests + 20 frontend routes verified. |
+| **Latest Test Status** | **PASSED** | 102/102 backend tests passing + Next.js production build (`20/20` static/dynamic routes) passing. |
 
 ---
 
@@ -31,7 +31,7 @@
 | **5** | **Document Ingestion Pipeline** | Tier 1 (MVP) | ✅ **COMPLETED** | `UKA-3`, `UKA-19` to `UKA-22` | 2026-11-21 |
 | **6** | **RAG Core Engine (Embeddings & Groq)** | Tier 1 (MVP) | ✅ **COMPLETED** | `UKA-4`, `UKA-5`, `UKA-23` to `UKA-28` | 2026-11-21 |
 | **7** | **Conversational Interface & Frontend (Next.js)** | Tier 1 (MVP) | ✅ **COMPLETED** | `UKA-7`, `UKA-30` to `UKA-34` | 2026-11-21 |
-| **8** | **OAuth 2.0 / OIDC & RBAC (Keycloak)** | Tier 2 (Graded) | ⏳ PENDING | `UKA-8` | Sprint 3 |
+| **8** | **OAuth 2.0 / OIDC & RBAC (Keycloak)** | Tier 2 (Graded) | ✅ **COMPLETED** | `UKA-8`, `UKA-37` | 2026-11-22 |
 | **9** | **Database Synchronization & Replicas** | Tier 2 (Graded) | ⏳ PENDING | `UKA-10`, `UKA-11` | Sprint 3 |
 | **10** | **Dockerization (Full Compose Stack)** | Tier 2 (Graded) | ⏳ PENDING | `UKA-12` | Sprint 4 |
 | **11** | **Kubernetes Deployment (Minikube)** | Tier 2 (Graded) | ⏳ PENDING | `UKA-13` | Sprint 4 |
@@ -53,7 +53,7 @@
 | `UKA-5` | `[EPIC 4] RAG Pipeline` | Phase 6 | ✅ **Done** |
 | `UKA-6` | `[EPIC 5] Citation System` | Phases 6–7 | ✅ **Done** |
 | `UKA-7` | `[EPIC 6] Conversational Interface` | Phase 7 | ✅ **Done** |
-| `UKA-8` | `[EPIC 7] Authentication and User Management` | Phase 8 | To Do |
+| `UKA-8` | `[EPIC 7] Authentication and User Management` | Phase 8 | ✅ **Done** |
 | `UKA-9` | `[EPIC 8] Admin Console` | Phases 5, 7 | ✅ **Done** |
 | `UKA-10` | `[EPIC 9] Database Synchronization` | Phase 9 | To Do |
 | `UKA-11` | `[EPIC 10] Redis Caching and Locking` | Phase 9 | To Do |
@@ -87,6 +87,7 @@
 | `UKA-34` | UI System States Implementation (Loading, Empty, Error, Forbidden) | `UKA-7` | Should Have | ✅ **Done** |
 | `UKA-35` | Connect Next.js Frontend to FastAPI Backend Endpoints | `UKA-7` | Must Have | ✅ **Done** |
 | `UKA-36` | Implement and Polish Admin Console (Document Mgmt, Analytics, Audit Trail) | `UKA-9` | Must Have | ✅ **Done** |
+| `UKA-37` | Keycloak OAuth 2.0 / OIDC Authorization Code Flow with PKCE and RBAC | `UKA-8` | Must Have | ✅ **Done** |
 
 ---
 
@@ -108,9 +109,9 @@
 | `TEST-STREAM-001` | SSE Token Streaming & Message Buffering | ✅ **PASSED** | 4 tests passing (token-by-token SSE streaming, typewriter fallback stream, interruption error handling, single complete message persistence). |
 | `TEST-AUTH-ADMIN-001` | Auth, Admin & Metadata Extension Endpoints | ✅ **PASSED** | 9 tests passing (`GET /me`, `POST /auth/login`, `GET /admin/stats`, `GET /admin/users`, `PATCH /admin/users/{id}/role`, `GET /documents/{id}/preview`, `PATCH /documents/{id}`). |
 | `TEST-ADMIN-001` | Complete Administrator Console & RBAC Enforcement | ✅ **PASSED** | 17 tests passing (upload, validation, metadata patch, cascading delete, preview, stats schema with status breakdowns, audit query/filter, strict 403 access control). |
-| `TEST-FE-001` | Next.js 14 Build & Static Generation | ✅ **PASSED** | 19/19 routes compiled & statically generated with 0 TypeScript/ESLint errors. |
+| `TEST-FE-001` | Next.js 14 Build & Static Generation | ✅ **PASSED** | 20/20 routes compiled & statically generated with 0 TypeScript/ESLint errors. |
 | `TEST-E2E-001` | Full End-to-End Frontend/Backend Workflow | ✅ **PASSED** | 9-step integration verification passed (Auth -> Upload -> Processing -> Preview -> Metadata Edit -> Conversation -> SSE Streaming Q&A -> Citations -> Admin Stats -> Cascading Deletion). |
-| `TEST-AUTH-001` | Keycloak JWT Authentication | ⏳ Pending | Scheduled for Phase 8 (`UKA-8`). |
+| `TEST-AUTH-001` | Keycloak JWT Authentication & RBAC | ✅ **PASSED** | 14 tests passing (`GET /auth/config`, RS256 JWKS validation, exp/iss claims, 401 on expired/tampered/invalid, RBAC student/faculty/admin 403 enforcement, httpOnly cookie auth, PKCE token exchange, token rotation, and Keycloak logout revocation). |
 | `TEST-DB-001` | Multi-Replica Read-After-Write Sync | ⏳ Pending | Scheduled for Phase 9 (`UKA-10`). |
 | `TEST-CONC-001` | Optimistic Locking 409 Conflict | ⏳ Pending | Scheduled for Phase 9 (`UKA-10`). |
 | `TEST-DOCKER-001` | 9-Service Docker Compose Boot | ⏳ Pending | Scheduled for Phase 10 (`UKA-12`). |
