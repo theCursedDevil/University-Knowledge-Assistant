@@ -427,7 +427,7 @@ export async function processDocument(id: string): Promise<any> {
 
 export async function updateDocumentMetadata(
   id: string,
-  payload: { title?: string; category?: string; role_restriction?: string }
+  payload: { title?: string; category?: string; role_restriction?: string; expected_version?: number }
 ): Promise<ApiDocument> {
   const headers = getAuthHeaders();
   const res = await fetch(`${API_BASE_URL}/documents/${id}`, {
@@ -437,6 +437,12 @@ export async function updateDocumentMetadata(
   });
   if (!res.ok) {
     const errBody = await res.json().catch(() => ({}));
+    if (res.status === 409) {
+      throw new Error(
+        errBody?.error?.message ||
+        "Conflict (HTTP 409): Document has been modified by another transaction. Please refresh."
+      );
+    }
     throw new Error(errBody?.error?.message || `Failed to update document metadata: HTTP ${res.status}`);
   }
   return res.json();

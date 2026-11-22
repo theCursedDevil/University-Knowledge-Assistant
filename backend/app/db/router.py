@@ -1,12 +1,18 @@
 """PostgreSQL Multi-Replica Router module.
 
-Implements round-robin read load balancing across PostgreSQL read replicas with
-strict primary-only write routing, health tracking, and graceful fallback to
-primary for reads when replicas are unavailable.
+Implements:
+1. Round-robin read load balancing across healthy PostgreSQL read replicas.
+2. Read-Your-Own-Writes consistency window routing to Primary (FR-DBSYNC-003, C-ROUTER).
+3. Strict primary-only write routing (failed writes NEVER fall back to replicas).
+4. Graceful fallback to Primary when all replicas are unavailable.
+5. Cluster health and WAL streaming replication observability.
 """
 
 import asyncio
-from typing import AsyncGenerator, Dict, List, Optional, Tuple, Any
+import math
+import time
+import uuid
+from typing import AsyncGenerator, Dict, List, Optional, Tuple, Any, Union
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -14,7 +20,40 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy import text
 
+try:
+    import redis
+except ImportError:
+    redis = None
+
+from backend.app.core.config import get_settings
 from backend.app.core.logging import logger
+
+settings = get_settings()
+
+
+class ReadTarget(tuple):
+    """3-tuple representing database target (name, engine, sessionmaker) with reason attribute."""
+
+    def __new__(
+        cls,
+        name: str,
+        engine: AsyncEngine,
+        sessionmaker: async_sessionmaker[AsyncSession],
+        reason: str = "round-robin",
+    ):
+        return super().__new__(cls, (name, engine, sessionmaker))
+
+    def __init__(
+        self,
+        name: str,
+        engine: AsyncEngine,
+        sessionmaker: async_sessionmaker[AsyncSession],
+        reason: str = "round-robin",
+    ):
+        self.name = name
+        self.engine = engine
+        self.sessionmaker = sessionmaker
+        self.reason = reason
 
 
 class ReplicaRouter:
@@ -22,9 +61,11 @@ class ReplicaRouter:
 
     Guarantees:
     1. Write operations are routed strictly and exclusively to the Primary.
-    2. Read operations are distributed across healthy replicas via round-robin.
-    3. If all replicas become unavailable, reads gracefully fall back to Primary.
-    4. Failed writes NEVER fall back to a replica.
+    2. Read-your-own-writes: subsequent reads from a user who recently performed a write
+       are routed to Primary during a configurable session window (FR-DBSYNC-003).
+    3. Normal reads are distributed across healthy replicas via round-robin.
+    4. If all replicas become unavailable, reads gracefully fall back to Primary.
+    5. Failed writes NEVER fall back to a replica.
     """
 
     def __init__(
@@ -44,6 +85,112 @@ class ReplicaRouter:
         self._replica_last_error: Dict[str, Optional[str]] = {name: None for name in self._replica_names}
         self._rr_counter: int = 0
         self._lock = asyncio.Lock()
+
+        # Read-your-own-writes session window tracking
+        self._user_write_windows: Dict[str, float] = {}  # user_id -> monotonic expiry
+        self._redis_client: Optional[Any] = None
+        self._init_redis()
+
+    def _init_redis(self) -> None:
+        """Initializes Redis client for distributed session window tracking if available."""
+        if redis is None:
+            return
+        try:
+            client = redis.Redis(
+                host=settings.REDIS_HOST,
+                port=settings.REDIS_PORT,
+                password=settings.REDIS_PASSWORD,
+                db=settings.REDIS_DB,
+                decode_responses=True,
+                socket_connect_timeout=1.0,
+            )
+            client.ping()
+            self._redis_client = client
+            logger.info("Connected to Redis for distributed read-your-own-writes session tracking.")
+        except Exception as exc:
+            logger.info("Redis not available for read-your-own-writes (%s); using in-memory monotonic window tracking.", exc)
+            self._redis_client = None
+
+    # --------------------------------------------------------------------------
+    # Read-Your-Own-Writes Session Tracking (FR-DBSYNC-003)
+    # --------------------------------------------------------------------------
+
+    def record_user_write(
+        self,
+        user_id: Union[uuid.UUID, str],
+        window_seconds: Optional[float] = None,
+    ) -> None:
+        """Records that a user has performed a database write.
+
+        Subsequent reads from this user will route to Primary for the duration
+        of window_seconds (default: settings.READ_YOUR_WRITES_WINDOW_SECONDS).
+        """
+        if not user_id:
+            return
+        uid = str(user_id)
+        duration = (
+            window_seconds
+            if window_seconds is not None
+            else settings.READ_YOUR_WRITES_WINDOW_SECONDS
+        )
+
+        # 1. In-memory monotonic clock
+        self._user_write_windows[uid] = time.monotonic() + duration
+
+        # 2. Redis distributed key
+        if self._redis_client:
+            try:
+                key = f"uka:user_write_window:{uid}"
+                ms = max(50, int(duration * 1000))
+                self._redis_client.set(key, str(time.time()), px=ms)
+            except Exception as exc:
+                logger.warning("Failed to record user write window in Redis: %s", exc)
+
+    def is_in_write_window(self, user_id: Optional[Union[uuid.UUID, str]]) -> bool:
+        """Checks whether the user is within their active read-your-own-writes window."""
+        if not user_id:
+            return False
+        uid = str(user_id)
+
+        # 1. In-memory monotonic check
+        expiry = self._user_write_windows.get(uid)
+        if expiry is not None:
+            if time.monotonic() < expiry:
+                return True
+            else:
+                self._user_write_windows.pop(uid, None)
+
+        # 2. Redis check
+        if self._redis_client:
+            try:
+                key = f"uka:user_write_window:{uid}"
+                if self._redis_client.exists(key):
+                    return True
+            except Exception as exc:
+                logger.warning("Failed to check write window in Redis: %s", exc)
+
+        return False
+
+    def clear_user_write_window(self, user_id: Union[uuid.UUID, str]) -> None:
+        """Clears the write window for a user (used for testing and immediate resets)."""
+        uid = str(user_id)
+        self._user_write_windows.pop(uid, None)
+        if self._redis_client:
+            try:
+                self._redis_client.delete(f"uka:user_write_window:{uid}")
+            except Exception:
+                pass
+
+    def clear_all_write_windows(self) -> None:
+        """Clears all active write windows."""
+        self._user_write_windows.clear()
+        if self._redis_client:
+            try:
+                keys = self._redis_client.keys("uka:user_write_window:*")
+                if keys:
+                    self._redis_client.delete(*keys)
+            except Exception:
+                pass
 
     # --------------------------------------------------------------------------
     # Write Routing (Strictly Primary Only)
@@ -72,58 +219,84 @@ class ReplicaRouter:
                 await session.close()
 
     # --------------------------------------------------------------------------
-    # Read Routing (Round-Robin with Graceful Fallback)
+    # Read Routing (Round-Robin with Read-Your-Own-Writes and Primary Fallback)
     # --------------------------------------------------------------------------
 
-    async def get_read_target(self) -> Tuple[str, AsyncEngine, async_sessionmaker[AsyncSession]]:
-        """Selects the next database engine and sessionmaker for read operations.
+    async def get_read_target(
+        self,
+        user_id: Optional[Union[uuid.UUID, str]] = None,
+    ) -> ReadTarget:
+        """Selects the target database engine and sessionmaker for read operations.
 
-        Uses round-robin across healthy replicas. If no replicas are healthy,
-        gracefully falls back to the Primary.
+        Routing hierarchy:
+        1. If user recently wrote data within the session window: Primary (read-your-own-writes).
+        2. If replicas are healthy: Round-robin across healthy replicas.
+        3. If all replicas are down: Primary (graceful fallback).
         """
+        # 1. Read-Your-Own-Writes consistency
+        if user_id and self.is_in_write_window(user_id):
+            logger.info(
+                "User '%s' is within active read-after-write window (%.1fs). Routing read to Primary.",
+                user_id,
+                settings.READ_YOUR_WRITES_WINDOW_SECONDS,
+            )
+            return ReadTarget(
+                "primary",
+                self.primary_engine,
+                self.primary_sessionmaker,
+                reason="read-your-own-writes",
+            )
+
+        # 2. Round-Robin replica balancing
         async with self._lock:
-            # Filter healthy replicas
             healthy_names = [
                 name for name in self._replica_names
                 if self._replica_health.get(name, False)
             ]
 
             if healthy_names:
-                # Round-robin selection
                 selected_name = healthy_names[self._rr_counter % len(healthy_names)]
                 self._rr_counter = (self._rr_counter + 1) % 1_000_000
                 engine = self.replica_engines[selected_name]
                 sm = self.replica_sessionmakers[selected_name]
-                return selected_name, engine, sm
+                return ReadTarget(
+                    selected_name,
+                    engine,
+                    sm,
+                    reason="round-robin",
+                )
 
-            # Fallback to Primary when all replicas are down
+            # 3. Fallback to Primary when all replicas are down
             logger.warning(
                 "All read replicas %s are currently marked unhealthy. "
                 "Gracefully routing read operation to Primary database.",
                 self._replica_names,
             )
-            return "primary", self.primary_engine, self.primary_sessionmaker
+            return ReadTarget(
+                "primary",
+                self.primary_engine,
+                self.primary_sessionmaker,
+                reason="all-replicas-unhealthy-fallback",
+            )
 
-    async def get_read_session(self) -> AsyncGenerator[AsyncSession, None]:
-        """FastAPI dependency / generator yielding an async read session.
-
-        Routes read requests across healthy replicas via round-robin,
-        falling back to Primary if all replicas are down.
-        """
-        target_name, _, sessionmaker = await self.get_read_target()
-        async with sessionmaker() as session:
+    async def get_read_session(
+        self,
+        user_id: Optional[Union[uuid.UUID, str]] = None,
+    ) -> AsyncGenerator[AsyncSession, None]:
+        """FastAPI dependency / generator yielding an async read session."""
+        target = await self.get_read_target(user_id=user_id)
+        async with target.sessionmaker() as session:
             try:
                 yield session
             except Exception as exc:
-                # If an error occurs on a replica during read, record error and mark unhealthy
-                if target_name in self._replica_health:
+                if target.name in self._replica_health:
                     logger.warning(
                         "Read query failed on replica '%s': %s. Marking replica unhealthy.",
-                        target_name,
+                        target.name,
                         exc,
                     )
-                    self._replica_health[target_name] = False
-                    self._replica_last_error[target_name] = str(exc)
+                    self._replica_health[target.name] = False
+                    self._replica_last_error[target.name] = str(exc)
                 raise
             finally:
                 await session.close()
@@ -133,14 +306,7 @@ class ReplicaRouter:
     # --------------------------------------------------------------------------
 
     async def check_health(self) -> Dict[str, Any]:
-        """Performs active connection and replication health checks across all nodes.
-
-        Probes:
-        1. Primary: checks connectivity, confirms in_recovery=False, and retrieves pg_stat_replication.
-        2. Each replica: checks connectivity and confirms in_recovery=True (standby mode).
-
-        Updates internal healthy status flags accordingly.
-        """
+        """Performs active connection and replication health checks across all nodes."""
         report: Dict[str, Any] = {
             "status": "connected",
             "database": self.primary_engine.url.database or "university_assistant",
@@ -150,6 +316,7 @@ class ReplicaRouter:
                 "total_replicas": len(self._replica_names),
                 "healthy_replicas": 0,
                 "fallback_to_primary": False,
+                "active_write_windows": len(self._user_write_windows),
             },
         }
 

@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.app.core.auth_dev import require_admin
 from backend.app.core.errors import NotFoundError, ForbiddenError
 from backend.app.core.logging import logger
-from backend.app.db.session import get_db, get_read_db
+from backend.app.db.session import get_db, get_read_db, replica_router
 from backend.app.db.models import User, Document, DocumentChunkMeta, Conversation, Message, AuditLog
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
@@ -215,6 +215,7 @@ async def update_user_role(
     db.add(audit)
     await db.commit()
     await db.refresh(user)
+    replica_router.record_user_write(current_user.id)
 
     logger.info("Updated role for user %s (%s -> %s)", user.id, old_role, target_role)
     return UserAdminResponse.model_validate(user)

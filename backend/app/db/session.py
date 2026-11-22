@@ -2,10 +2,11 @@
 
 Supports PostgreSQL primary (read-write) and read replicas using ReplicaRouter (C-ROUTER / C-DAL).
 Provides session dependencies for write and read operations, connection health checks,
-and multi-engine connection pooling.
+read-your-own-writes consistency routing (FR-DBSYNC-003), and multi-engine connection pooling.
 """
 
-from typing import AsyncGenerator, Dict, Any
+from typing import AsyncGenerator, Dict, Any, Optional
+from fastapi import Request
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -91,25 +92,106 @@ replica_router = ReplicaRouter(
 )
 
 
-async def get_db() -> AsyncGenerator[AsyncSession, None]:
+def resolve_user_id_from_request(request: Optional[Request]) -> Optional[str]:
+    """Extracts user identification from request state, headers, or token claims."""
+    if request is None:
+        return None
+
+    # 1. State attached by auth dependency / middleware
+    user_state = getattr(request.state, "user", None) or getattr(request.state, "current_user", None)
+    if user_state and hasattr(user_state, "id"):
+        return str(user_state.id)
+    if hasattr(request.state, "user_id") and request.state.user_id:
+        return str(request.state.user_id)
+
+    # 2. Development / explicit user ID header
+    dev_uid = request.headers.get("x-user-id") or request.headers.get("x-dev-user-id")
+    if dev_uid:
+        return dev_uid
+
+    # 3. Development email / role header
+    dev_email = request.headers.get("x-dev-email")
+    if dev_email:
+        return dev_email
+
+    # 4. Bearer token extraction
+    auth_header = request.headers.get("authorization")
+    if auth_header and auth_header.lower().startswith("bearer "):
+        token = auth_header[7:].strip()
+        if token.startswith("dev-token-"):
+            return token
+        try:
+            import jwt
+            payload = jwt.decode(token, options={"verify_signature": False})
+            return payload.get("sub") or payload.get("email")
+        except Exception:
+            pass
+
+    # 5. Cookie token extraction
+    cookie_token = request.cookies.get("uka_access_token")
+    if cookie_token:
+        if cookie_token.startswith("dev-token-"):
+            return cookie_token
+        try:
+            import jwt
+            payload = jwt.decode(cookie_token, options={"verify_signature": False})
+            return payload.get("sub") or payload.get("email")
+        except Exception:
+            pass
+
+    return None
+
+
+async def get_db(
+    request: Request = None,
+) -> AsyncGenerator[AsyncSession, None]:
     """FastAPI dependency yielding an async write session bound to Primary.
 
     Maintains backward compatibility with all existing routes and tests.
     """
+    if request is not None:
+        request.state.db_route = "primary"
+        request.state.db_route_reason = "write"
     async for session in replica_router.get_write_session():
         yield session
 
 
-async def get_write_db() -> AsyncGenerator[AsyncSession, None]:
+async def get_write_db(
+    request: Request = None,
+) -> AsyncGenerator[AsyncSession, None]:
     """Explicit alias for primary write database session."""
+    if request is not None:
+        request.state.db_route = "primary"
+        request.state.db_route_reason = "write"
     async for session in replica_router.get_write_session():
         yield session
 
 
-async def get_read_db() -> AsyncGenerator[AsyncSession, None]:
-    """FastAPI dependency yielding a read session balanced across replicas (or primary fallback)."""
-    async for session in replica_router.get_read_session():
-        yield session
+async def get_read_db(
+    request: Request = None,
+) -> AsyncGenerator[AsyncSession, None]:
+    """FastAPI dependency yielding a read session.
+
+    If the user has recently written data (within the read-your-own-writes session window),
+    routes to Primary. Otherwise balances across healthy replicas via round-robin.
+    """
+    user_id = resolve_user_id_from_request(request) if request is not None else None
+    target = await replica_router.get_read_target(user_id=user_id)
+
+    if request is not None:
+        request.state.db_route = target.name
+        request.state.db_route_reason = target.reason
+
+    async with target.sessionmaker() as session:
+        try:
+            yield session
+        except Exception as exc:
+            if target.name in replica_router._replica_health:
+                replica_router._replica_health[target.name] = False
+                replica_router._replica_last_error[target.name] = str(exc)
+            raise
+        finally:
+            await session.close()
 
 
 async def check_db_connection() -> Dict[str, Any]:

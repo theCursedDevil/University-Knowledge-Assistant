@@ -95,11 +95,15 @@ class Settings(BaseSettings):
     POSTGRES_PASSWORD: str = Field(default="postgres")
     POSTGRES_DB: str = Field(default="university_assistant")
 
-    # PostgreSQL Read Replicas
+    # PostgreSQL Read Replicas & Read-Your-Own-Writes Consistency (FR-DBSYNC-003)
     POSTGRES_REPLICA1_HOST: str = Field(default="localhost")
     POSTGRES_REPLICA1_PORT: int = Field(default=5433)
     POSTGRES_REPLICA2_HOST: str = Field(default="localhost")
     POSTGRES_REPLICA2_PORT: int = Field(default=5434)
+    READ_YOUR_WRITES_WINDOW_SECONDS: float = Field(
+        default=5.0,
+        description="Duration (seconds) during which subsequent reads from a user are routed to Primary after a write.",
+    )
 
     # Redis Cache & Distributed Locking
     REDIS_HOST: str = Field(default="localhost")

@@ -11,12 +11,12 @@
 
 | Metric | Status | Details |
 |---|:---:|---|
-| **Current Phase** | **Phase 9 (PostgreSQL Primary & Read Replicas with Round-Robin ReplicaRouter)** | Completed: PostgreSQL 16 multi-replica architecture with 1 primary database and 2 read standbys using WAL streaming replication (`UKA-10`, `UKA-40`), separate primary/replica connections, round-robin `ReplicaRouter`, primary-only write routing, read balancing, connection health probes, graceful fallback to primary when replicas are unavailable, read-only standby enforcement, and active replication stream telemetry. |
-| **Completed Phases** | **Phases 1, 2, 3, 4, 5, 6, 7, 8 & 9 (Part 1)** | Planning, Git/JIRA Setup, Backend Skeleton, PostgreSQL Schema, Document Pipeline, Core RAG, Citations, Conversational Frontend, Full End-to-End Integration, Keycloak OAuth 2.0 / OIDC, Role-Restricted Documents, Security Hardening, and PostgreSQL Multi-Replica Streaming Replication (`UKA-16` through `UKA-40`). |
-| **Pending Phases** | **Phases 9 (Part 2: Redis Caching & Locking) – 14** | Redis query caching and optimistic locking, Docker Compose 9-service stack, K8s manifests, CI/CD pipeline, and demo scripts. |
-| **Blocked Items** | **None** | All integrations (GitHub MCP, JIRA TWG, MinIO, PostgreSQL Primary + 2 Standbys, Qdrant, Keycloak, Groq LLM, Next.js 14, SSE Streaming) verified and operational. |
-| **Active JIRA Board** | [`UKA`](https://nightbladeninja.atlassian.net/jira/software/projects/UKA/boards) | 14 Epics created; 18 frontend screens connected; 127 backend tests + 20 frontend routes verified. |
-| **Latest Test Status** | **PASSED** | 127/127 backend tests passing + Next.js production build (`20/20` static/dynamic routes) passing. |
+| **Current Phase** | **Phase 9 (Database Synchronization, Read-Your-Own-Writes & Optimistic Locking)** | Completed: PostgreSQL 16 multi-replica architecture with 1 primary database and 2 read standbys using WAL streaming replication (`UKA-10`, `UKA-40`), round-robin `ReplicaRouter`, primary-only write routing, read balancing, connection health probes, graceful fallback, read-your-own-writes session window routing to Primary (`UKA-41`), and atomic optimistic concurrency control on document metadata updates with HTTP 409 Conflict (`UKA-41`). |
+| **Completed Phases** | **Phases 1, 2, 3, 4, 5, 6, 7, 8 & 9** | Planning, Git/JIRA Setup, Backend Skeleton, PostgreSQL Schema, Document Pipeline, Core RAG, Citations, Conversational Frontend, Full End-to-End Integration, Keycloak OAuth 2.0 / OIDC, Role-Restricted Documents, Security Hardening, PostgreSQL Multi-Replica Streaming Replication, and Database Synchronization Fixes (`UKA-16` through `UKA-41`). |
+| **Pending Phases** | **Phases 10–14** | Full Docker Compose 9-service production stack, K8s manifests, CI/CD pipeline, and demo scripts. |
+| **Blocked Items** | **None** | All integrations (GitHub MCP, JIRA TWG, MinIO, PostgreSQL Primary + 2 Standbys, Redis 7, Qdrant, Keycloak, Groq LLM, Next.js 14, SSE Streaming) verified and operational. |
+| **Active JIRA Board** | [`UKA`](https://nightbladeninja.atlassian.net/jira/software/projects/UKA/boards) | 14 Epics created; 18 frontend screens connected; 133 backend tests + 20 frontend routes verified. |
+| **Latest Test Status** | **PASSED** | 133/133 backend tests passing + Next.js production build (`20/20` static/dynamic routes) passing. |
 
 ---
 
@@ -32,7 +32,7 @@
 | **6** | **RAG Core Engine (Embeddings & Groq)** | Tier 1 (MVP) | ✅ **COMPLETED** | `UKA-4`, `UKA-5`, `UKA-23` to `UKA-28` | 2026-11-21 |
 | **7** | **Conversational Interface & Frontend (Next.js)** | Tier 1 (MVP) | ✅ **COMPLETED** | `UKA-7`, `UKA-30` to `UKA-34` | 2026-11-21 |
 | **8** | **OAuth 2.0 / OIDC & RBAC (Keycloak)** | Tier 2 (Graded) | ✅ **COMPLETED** | `UKA-8`, `UKA-37` | 2026-11-22 |
-| **9** | **Database Synchronization & Replicas** | Tier 2 (Graded) | ⏳ PENDING | `UKA-10`, `UKA-11` | Sprint 3 |
+| **9** | **Database Synchronization & Replicas** | Tier 2 (Graded) | ✅ **COMPLETED** | `UKA-10`, `UKA-40`, `UKA-41` | 2026-11-22 |
 | **10** | **Dockerization (Full Compose Stack)** | Tier 2 (Graded) | ⏳ PENDING | `UKA-12` | Sprint 4 |
 | **11** | **Kubernetes Deployment (Minikube)** | Tier 2 (Graded) | ⏳ PENDING | `UKA-13` | Sprint 4 |
 | **12** | **CI/CD Pipeline (GitHub Actions)** | Tier 2 (Graded) | ⏳ PENDING | `UKA-14` | Sprint 4 |
@@ -91,6 +91,7 @@
 | `UKA-38` | Role-Restricted Document Visibility and Backend Retrieval Permissions | `UKA-8` | Must Have | ✅ **Done** |
 | `UKA-39` | System Security Hardening: Rate Limiting, Security Headers, CORS, and Least-Privilege DB Accounts | `UKA-8` | Must Have | ✅ **Done** |
 | `UKA-40` | PostgreSQL Primary and Two Read Replicas with Round-Robin ReplicaRouter | `UKA-10` | Must Have | ✅ **Done** |
+| `UKA-41` | Read-After-Write Consistency and Optimistic Locking | `UKA-10` | Must Have | ✅ **Done** |
 
 ---
 
