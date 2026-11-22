@@ -54,6 +54,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     except Exception as exc:
         logger.warning("Startup AI model pre-initialization deferred: %s", exc)
 
+    # 2. Verify Redis cache & locking client connectivity (C-CACHE)
+    try:
+        from backend.app.core.cache import cache_client, redis_manager
+        if redis_manager.is_healthy():
+            logger.info("Connected to Redis cache at %s:%s (db=%s).", settings.REDIS_HOST, settings.REDIS_PORT, settings.REDIS_DB)
+        else:
+            logger.warning("Redis cache at %s:%s is currently unreachable; operating in graceful fallback mode.", settings.REDIS_HOST, settings.REDIS_PORT)
+    except Exception as exc:
+        logger.warning("Redis initialization check deferred: %s", exc)
+
     yield
     logger.info("Shutting down %s", settings.PROJECT_NAME)
 
@@ -81,7 +91,7 @@ def create_app() -> FastAPI:
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
-        expose_headers=["X-Database-Route", "X-Database-Route-Reason"],
+        expose_headers=["X-Database-Route", "X-Database-Route-Reason", "X-Cache"],
     )
 
     # 2. Database Routing Headers Middleware (FR-DBSYNC-002, FR-DBSYNC-003)

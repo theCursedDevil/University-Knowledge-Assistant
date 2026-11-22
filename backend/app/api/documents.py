@@ -9,7 +9,7 @@ Endpoints:
 import re
 import uuid
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, Union, Any
 from fastapi import (
     APIRouter,
     BackgroundTasks,
@@ -17,6 +17,7 @@ from fastapi import (
     File,
     Form,
     UploadFile,
+    Response,
     status,
     Query,
 )
@@ -31,8 +32,10 @@ from backend.app.core.errors import (
     NotFoundError,
     ValidationError,
     ConflictError,
+    LockContentionError,
 )
 from backend.app.core.logging import logger
+from backend.app.core.cache import cache_client, async_distributed_lock
 from backend.app.core.auth_dev import get_current_user, require_admin
 from backend.app.db.session import get_db, get_read_db, replica_router
 from backend.app.db.models import User, Document, DocumentChunkMeta, AuditLog
@@ -122,7 +125,7 @@ class DocumentChunkResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
-def check_document_access(document: Document, user: User) -> None:
+def check_document_access(document: Union[Document, DocumentResponse, Any], user: User) -> None:
     """Validates that the user's role permits accessing the document (FR-DOC-010)."""
     if user.role == "admin":
         return
@@ -251,6 +254,8 @@ async def upload_document(
         await db.refresh(document)
         # Record write for read-your-own-writes session consistency (FR-DBSYNC-003)
         replica_router.record_user_write(current_user.id)
+        # Invalidate cached document listings and admin stats on upload (FR-CACHE-001)
+        cache_client.invalidate_document_caches()
     except Exception as exc:
         logger.error("Database commit failed for doc %s; cleaning up MinIO object: %s", doc_id, exc)
         # Prevent orphaned storage objects
@@ -279,7 +284,7 @@ async def upload_document(
     response_model=ProcessingResult,
     status_code=status.HTTP_200_OK,
     summary="Trigger Document Ingestion Pipeline",
-    description="Synchronously runs PDF extraction, chunking, embedding generation, and vector indexing for the given document. Administrator role required.",
+    description="Synchronously runs PDF extraction, chunking, embedding generation, and vector indexing for the given document with distributed lock protection. Administrator role required.",
     tags=["Documents"],
 )
 async def trigger_document_processing(
@@ -287,7 +292,15 @@ async def trigger_document_processing(
     current_user: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> ProcessingResult:
-    """Executes the ingestion pipeline for a document."""
+    """Executes the ingestion pipeline for a document with distributed lock protection."""
+    stmt = select(Document).where(Document.id == id)
+    res = await db.execute(stmt)
+    doc = res.scalar_one_or_none()
+    if not doc:
+        raise NotFoundError(
+            message=f"Document with ID '{id}' not found.",
+            details={"document_id": str(id)},
+        )
     return await process_document(id, session=db)
 
 
@@ -333,13 +346,27 @@ async def get_document_chunks(
     tags=["Documents"],
 )
 async def list_documents(
+    response: Response,
     category: Optional[str] = Query(default=None, description="Optional category filter."),
     skip: int = Query(default=0, ge=0, description="Pagination offset."),
     limit: int = Query(default=100, ge=1, le=500, description="Pagination limit."),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_read_db),
 ) -> List[DocumentResponse]:
-    """Retrieves document records from PostgreSQL with role-based visibility filtering."""
+    """Retrieves document records from PostgreSQL with role-based visibility filtering and Redis read-through caching."""
+    cache_key = cache_client.build_document_list_key(
+        role=current_user.role,
+        category=category,
+        skip=skip,
+        limit=limit,
+    )
+    cached_docs = cache_client.get(cache_key)
+    if cached_docs is not None:
+        response.headers["X-Cache"] = "HIT"
+        logger.debug("[CACHE] Hit for document list '%s'", cache_key)
+        return [DocumentResponse.model_validate(item) for item in cached_docs]
+
+    response.headers["X-Cache"] = "MISS"
     query = select(Document)
     if category:
         query = query.where(Document.category == category)
@@ -363,8 +390,12 @@ async def list_documents(
 
     query = query.order_by(Document.created_at.desc()).offset(skip).limit(limit)
     result = await db.execute(query)
-    docs = result.scalars().all()
-    return list(docs)
+    docs = list(result.scalars().all())
+
+    # Cache serialized documents list
+    serialized = [DocumentResponse.model_validate(d).model_dump(mode="json") for d in docs]
+    cache_client.set(cache_key, serialized, ttl=settings.CACHE_DOCUMENTS_LIST_TTL)
+    return docs
 
 
 @router.get(
@@ -377,10 +408,20 @@ async def list_documents(
 )
 async def get_document(
     id: uuid.UUID,
+    response: Response,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_read_db),
 ) -> DocumentResponse:
-    """Retrieves single document metadata."""
+    """Retrieves single document metadata with caching and role-based access check."""
+    cache_key = cache_client.build_document_detail_key(str(id))
+    cached = cache_client.get(cache_key)
+    if cached is not None:
+        doc_resp = DocumentResponse.model_validate(cached)
+        check_document_access(doc_resp, current_user)
+        response.headers["X-Cache"] = "HIT"
+        return doc_resp
+
+    response.headers["X-Cache"] = "MISS"
     stmt = select(Document).where(Document.id == id)
     res = await db.execute(stmt)
     doc = res.scalar_one_or_none()
@@ -390,7 +431,9 @@ async def get_document(
             details={"document_id": str(id)},
         )
     check_document_access(doc, current_user)
-    return DocumentResponse.model_validate(doc)
+    doc_resp = DocumentResponse.model_validate(doc)
+    cache_client.set(cache_key, doc_resp.model_dump(mode="json"), ttl=settings.CACHE_DEFAULT_TTL_SECONDS)
+    return doc_resp
 
 
 @router.get(
@@ -554,6 +597,7 @@ async def update_document(
 
     # 7. Record write for read-your-own-writes session consistency (FR-DBSYNC-003)
     replica_router.record_user_write(current_user.id)
+    cache_client.invalidate_document_caches(document_id=str(id))
 
     # 8. Reload refreshed document
     refreshed_doc = (await db.execute(select(Document).where(Document.id == id))).scalar_one()
@@ -573,48 +617,50 @@ async def delete_document(
     current_user: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> DocumentDeleteResponse:
-    """Executes cascading deletion across MinIO, Qdrant, and PostgreSQL with audit trail logging."""
-    stmt = select(Document).where(Document.id == id)
-    result = await db.execute(stmt)
-    document = result.scalar_one_or_none()
+    """Executes cascading deletion across MinIO, Qdrant, and PostgreSQL with distributed lock protection."""
+    async with async_distributed_lock(f"document:{id}", expire_seconds=30.0, timeout_seconds=1.0):
+        stmt = select(Document).where(Document.id == id)
+        result = await db.execute(stmt)
+        document = result.scalar_one_or_none()
 
-    if not document:
-        raise NotFoundError(
-            message=f"Document with ID '{id}' not found.",
-            details={"document_id": str(id)},
+        if not document:
+            raise NotFoundError(
+                message=f"Document with ID '{id}' not found.",
+                details={"document_id": str(id)},
+            )
+
+        # 1. Remove object from MinIO
+        storage_path = document.storage_path
+        if storage_service.file_exists(storage_path):
+            storage_service.delete_file(storage_path)
+
+        # 2. Remove vector points from Qdrant
+        try:
+            vector_store.delete_document_vectors(id)
+        except Exception as exc:
+            logger.warning("Failed to delete Qdrant vectors for doc %s: %s", id, exc)
+
+        # 3. Record audit log entry
+        audit_entry = AuditLog(
+            user_id=current_user.id,
+            action="DOCUMENT_DELETE",
+            entity="documents",
+            entity_id=str(id),
+            details={"title": document.title, "storage_path": storage_path},
         )
+        db.add(audit_entry)
 
-    # 1. Remove object from MinIO
-    storage_path = document.storage_path
-    if storage_service.file_exists(storage_path):
-        storage_service.delete_file(storage_path)
+        # 4. Delete from database (cascades to document_chunks_meta)
+        await db.delete(document)
+        await db.commit()
+        replica_router.record_user_write(current_user.id)
+        cache_client.invalidate_document_caches(document_id=str(id))
 
-    # 2. Remove vector points from Qdrant
-    try:
-        vector_store.delete_document_vectors(id)
-    except Exception as exc:
-        logger.warning("Failed to delete Qdrant vectors for doc %s: %s", id, exc)
-
-    # 3. Record audit log entry
-    audit_entry = AuditLog(
-        user_id=current_user.id,
-        action="DOCUMENT_DELETE",
-        entity="documents",
-        entity_id=str(id),
-        details={"title": document.title, "storage_path": storage_path},
-    )
-    db.add(audit_entry)
-
-    # 4. Delete from database (cascades to document_chunks_meta)
-    await db.delete(document)
-    await db.commit()
-    replica_router.record_user_write(current_user.id)
-
-    logger.info("Document deleted: id=%s title='%s'", id, document.title)
-    return DocumentDeleteResponse(
-        message="Document successfully deleted",
-        id=id,
-    )
+        logger.info("Document deleted: id=%s title='%s'", id, document.title)
+        return DocumentDeleteResponse(
+            message="Document successfully deleted",
+            id=id,
+        )
 
 
 class DocumentSearchRequest(BaseModel):
