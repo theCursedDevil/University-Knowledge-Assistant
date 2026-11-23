@@ -5,7 +5,6 @@ Performs live user journey validation across Student, Faculty, Admin, Database, 
 """
 
 import io
-import sys
 import uuid
 import yaml
 import fitz
@@ -51,7 +50,7 @@ def run_verification():
     # -------------------------------------------------------------------------
     print(f"{BOLD}--- 1. STUDENT USER JOURNEY ---{RESET}")
     student_headers = {"X-Dev-Role": "student"}
-    
+
     # 1.1 Open application
     r1 = client.get("/health")
     log_step("STUDENT", 1, "Open application (Health check)", r1.status_code == 200)

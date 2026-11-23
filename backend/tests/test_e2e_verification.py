@@ -285,7 +285,7 @@ async def test_e2e_database_journey():
     # Step 2: Verify read/write routing
     write_engine = replica_router.get_write_engine()
     assert write_engine == replica_router.primary_engine
-    
+
     # Mark replicas healthy to test round-robin read distribution
     replica_router._replica_health["replica_1"] = True
     replica_router._replica_health["replica_2"] = True
@@ -300,10 +300,10 @@ async def test_e2e_database_journey():
     user_id = uuid.uuid4()
     before_write = await replica_router.get_read_target(user_id=user_id)
     assert before_write.name in ("replica_1", "replica_2")
-    
+
     replica_router.record_user_write(user_id, window_seconds=5.0)
     assert replica_router.is_in_write_window(user_id) is True
-    
+
     after_write = await replica_router.get_read_target(user_id=user_id)
     assert after_write.name == "primary"
     assert after_write.reason == "read-your-own-writes"
