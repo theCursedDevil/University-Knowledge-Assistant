@@ -50,6 +50,7 @@ else
                     backend/tests/test_advanced_rag.py \
                     backend/tests/test_monitoring.py \
                     backend/tests/test_optional_enhancements.py \
+                    backend/tests/test_e2e_verification.py \
                     -v --tb=short
 fi
 
