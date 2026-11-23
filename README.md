@@ -10,11 +10,6 @@
 [![Docker Compose](https://img.shields.io/badge/Docker%20Compose-11%20Services-2496ED.svg)](docker-compose.yml)
 [![Kubernetes](https://img.shields.io/badge/Kubernetes-HPA%20%2B%20Ingress-326CE5.svg)](kubernetes/)
 
-> **B.Tech CSE (AI/ML) Capstone Project · CS4191 Capstone Project II**  
-> **Student:** Aashu Kumar · **Roll No:** BT23GCS449  
-> **GitHub Repository:** [`theCursedDevil/University-Knowledge-Assistant`](https://github.com/theCursedDevil/University-Knowledge-Assistant)  
-> **JIRA Project:** `UKA` on [`nightbladeninja.atlassian.net`](https://nightbladeninja.atlassian.net)  
-
 ---
 
 ## 1. Project Overview & Problem Statement
