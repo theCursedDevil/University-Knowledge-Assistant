@@ -64,24 +64,26 @@ export function Navbar({ onToggleSidebar }: { onToggleSidebar?: () => void }) {
           <kbd className="text-[10px] bg-zinc-200 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-zinc-500">⌘K</kbd>
         </Link>
 
-        {/* Dev Mode Role Switcher */}
-        <div className="flex items-center gap-1.5 bg-zinc-100 dark:bg-zinc-900 p-1 rounded-md border border-zinc-200 dark:border-zinc-800">
-          <span className="text-[10px] font-medium text-zinc-400 px-1 hidden lg:inline">Role:</span>
-          {(["student", "faculty", "admin"] as Role[]).map((r) => (
-            <button
-              key={r}
-              onClick={() => switchRole(r)}
-              className={`px-2 py-0.5 text-xs font-medium rounded capitalize transition flex items-center gap-1 ${
-                role === r
-                  ? "bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 shadow-xs border border-zinc-200/80 dark:border-zinc-700/80"
-                  : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
-              }`}
-              title={`Switch active mock session persona to ${r}`}
-            >
-              {role === r && roleIcons[r]}
-              {r}
-            </button>
-          ))}
+        {/* Official University Institutional Role Badge */}
+        <div className="flex items-center">
+          {role === "admin" && (
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800">
+              <Shield className="w-3.5 h-3.5" />
+              <span>Administrator</span>
+            </span>
+          )}
+          {role === "faculty" && (
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-800">
+              <Briefcase className="w-3.5 h-3.5" />
+              <span>Faculty</span>
+            </span>
+          )}
+          {role === "student" && (
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">
+              <GraduationCap className="w-3.5 h-3.5" />
+              <span>Student</span>
+            </span>
+          )}
         </div>
 
         {/* Theme Toggle */}

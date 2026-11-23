@@ -30,8 +30,12 @@ export default function LoginPage() {
     setError(null);
     setIsLoading(true);
 
+    const derivedRole: Role =
+      email.toLowerCase().includes("admin") ? "admin" :
+      email.toLowerCase().includes("faculty") ? "faculty" : selectedRole;
+
     try {
-      await login(email, selectedRole);
+      await login(email, derivedRole);
       router.push("/dashboard");
     } catch (err: any) {
       setError(err.message || "Login failed. Please check credentials.");
@@ -226,32 +230,6 @@ export default function LoginPage() {
             </div>
           </div>
 
-          {/* Persona selector for quick demo testing */}
-          <div className="pt-1">
-            <span className="block text-[11px] text-zinc-500 dark:text-zinc-400 mb-1 font-medium">
-              Demo Persona Role:
-            </span>
-            <div className="grid grid-cols-3 gap-2">
-              {(["student", "faculty", "admin"] as Role[]).map((r) => (
-                <button
-                  key={r}
-                  type="button"
-                  onClick={() => {
-                    setSelectedRole(r);
-                    setEmail(`${r}@university.edu`);
-                  }}
-                  className={`py-1.5 px-2 text-xs font-medium rounded capitalize border transition ${
-                    selectedRole === r
-                      ? "border-accent bg-accent/10 text-accent font-semibold"
-                      : "border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-800"
-                  }`}
-                >
-                  {r}
-                </button>
-              ))}
-            </div>
-          </div>
-
           <button
             type="submit"
             disabled={isLoading}
@@ -267,6 +245,12 @@ export default function LoginPage() {
             )}
           </button>
         </form>
+
+        <div className="mt-4 pt-3 border-t border-zinc-100 dark:border-zinc-800 text-center">
+          <p className="text-[11px] text-zinc-400 dark:text-zinc-500">
+            Institutional Access: Use your official university account (<span className="font-mono text-zinc-500">@university.edu</span>)
+          </p>
+        </div>
 
         {/* Footer Link to Sign Up (W-14) */}
         <p className="text-center text-xs text-zinc-500 dark:text-zinc-400 mt-6">

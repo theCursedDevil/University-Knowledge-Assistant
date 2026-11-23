@@ -305,13 +305,13 @@ export async function streamChatMessage({
           try {
             const parsed = JSON.parse(rawData);
 
-            if (currentEvent === "token" && parsed.token) {
+            if (parsed.token !== undefined) {
               accumulatedAnswer += parsed.token;
               onToken(parsed.token);
-            } else if (currentEvent === "citations" && parsed.citations) {
+            } else if (parsed.citations !== undefined) {
               accumulatedCitations = parsed.citations;
               onCitations(parsed.citations);
-            } else if (currentEvent === "done") {
+            } else if (parsed.done || currentEvent === "done") {
               const finalAnswer = parsed.answer || accumulatedAnswer;
               const finalCitations = parsed.citations || accumulatedCitations;
               onComplete({
@@ -320,13 +320,13 @@ export async function streamChatMessage({
                 messageId: parsed.message_id,
               });
               return;
-            } else if (currentEvent === "error") {
+            } else if (parsed.error || currentEvent === "error") {
               onError(new Error(parsed.error || "Streaming error encountered."));
               return;
             }
           } catch {
             // Raw text fallback if JSON parsing fails
-            if (currentEvent === "token") {
+            if (rawData && rawData !== "[DONE]") {
               accumulatedAnswer += rawData;
               onToken(rawData);
             }

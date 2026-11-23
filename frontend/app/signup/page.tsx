@@ -3,8 +3,10 @@
 import React, { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Sparkles, Eye, EyeOff, User, Mail, Lock, CheckCircle2, AlertCircle } from "lucide-react";
+import { Sparkles, Eye, EyeOff, User, Mail, Lock, CheckCircle2, AlertCircle, ShieldCheck } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
+import { fetchKeycloakConfig } from "@/lib/api";
+import { generateCodeVerifier, generateCodeChallenge, generateState } from "@/lib/pkce";
 
 export default function SignUpPage() {
   const router = useRouter();
@@ -19,6 +21,56 @@ export default function SignUpPage() {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  const [isKeycloakLoading, setIsKeycloakLoading] = useState(false);
+
+  const handleKeycloakSignUp = async (idpHint?: string) => {
+    setError(null);
+    setIsKeycloakLoading(true);
+    try {
+      let config = {
+        keycloak_url: process.env.NEXT_PUBLIC_KEYCLOAK_URL || "http://localhost:8080",
+        realm: process.env.NEXT_PUBLIC_KEYCLOAK_REALM || "university-realm",
+        client_id: process.env.NEXT_PUBLIC_KEYCLOAK_CLIENT_ID || "university-assistant-client",
+      };
+
+      try {
+        const liveConfig = await fetchKeycloakConfig();
+        if (liveConfig?.keycloak_url) {
+          if (liveConfig.keycloak_url.includes("://keycloak:")) {
+            liveConfig.keycloak_url = liveConfig.keycloak_url.replace("://keycloak:", "://localhost:");
+          }
+          config = liveConfig;
+        }
+      } catch {
+        // Fall back
+      }
+
+      const verifier = generateCodeVerifier(64);
+      const challenge = await generateCodeChallenge(verifier);
+      const state = generateState(32);
+
+      sessionStorage.setItem("uka_pkce_verifier", verifier);
+      sessionStorage.setItem("uka_pkce_state", state);
+
+      const redirectUri = `${window.location.origin}/auth/callback`;
+      let authUrl = `${config.keycloak_url}/realms/${config.realm}/protocol/openid-connect/auth?client_id=${encodeURIComponent(
+        config.client_id
+      )}&response_type=code&scope=openid%20profile%20email&redirect_uri=${encodeURIComponent(
+        redirectUri
+      )}&code_challenge=${encodeURIComponent(challenge)}&code_challenge_method=S256&state=${encodeURIComponent(
+        state
+      )}`;
+
+      if (idpHint) {
+        authUrl += `&kc_idp_hint=${encodeURIComponent(idpHint)}`;
+      }
+
+      window.location.href = authUrl;
+    } catch (err: any) {
+      setError(err.message || "Failed to initiate sign-up redirection.");
+      setIsKeycloakLoading(false);
+    }
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -81,6 +133,62 @@ export default function SignUpPage() {
             <span>Account created successfully! Redirecting to dashboard...</span>
           </div>
         )}
+
+        {/* Primary Action: Google Sign-Up & University SSO */}
+        <div className="space-y-2.5 mb-5">
+          <button
+            type="button"
+            onClick={() => handleKeycloakSignUp("google")}
+            disabled={isKeycloakLoading}
+            className="w-full py-2.5 px-4 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-700/60 text-zinc-800 dark:text-zinc-100 text-xs font-semibold shadow-xs transition flex items-center justify-center gap-2.5 cursor-pointer disabled:opacity-60"
+          >
+            <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
+              <path
+                fill="#4285F4"
+                d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+              />
+              <path
+                fill="#34A853"
+                d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+              />
+              <path
+                fill="#FBBC05"
+                d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
+              />
+              <path
+                fill="#EA4335"
+                d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
+              />
+            </svg>
+            Sign up with Google
+          </button>
+
+          <button
+            type="button"
+            onClick={() => handleKeycloakSignUp()}
+            disabled={isKeycloakLoading}
+            className="w-full py-2.5 px-4 rounded-lg bg-accent hover:bg-accent/90 text-white text-xs font-semibold shadow-xs transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
+          >
+            {isKeycloakLoading ? (
+              <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+            ) : (
+              <>
+                <ShieldCheck className="w-4 h-4" />
+                Sign Up with University SSO
+              </>
+            )}
+          </button>
+        </div>
+
+        {/* Divider */}
+        <div className="relative my-5 text-center">
+          <div className="absolute inset-0 flex items-center">
+            <div className="w-full border-t border-zinc-200 dark:border-zinc-800" />
+          </div>
+          <span className="relative px-3 text-[11px] uppercase tracking-wider bg-white dark:bg-zinc-900 text-zinc-400">
+            or register with email
+          </span>
+        </div>
 
         <form onSubmit={handleSubmit} className="space-y-3.5">
           <div>

@@ -336,7 +336,7 @@ export default function ChatPage() {
                           : "bg-zinc-100/80 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-800 dark:text-zinc-200 rounded-tl-xs shadow-2xs"
                       }`}
                     >
-                      <p className="whitespace-pre-wrap">{msg.content}</p>
+                      <p className="whitespace-pre-wrap">{msg.content || "I couldn't find sufficient information about this in the available university documents."}</p>
                     </div>
 
                     {/* Verified Citations Panel Trigger (W-05) */}
