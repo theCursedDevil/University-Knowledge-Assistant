@@ -26,6 +26,16 @@ fi
 
 export PYTHONPATH="${REPO_ROOT}"
 
+# Apply database schema migrations before running tests
+echo "Applying database schema migrations (alembic upgrade head)..."
+if command -v alembic &> /dev/null; then
+    alembic upgrade head
+elif [[ -x "${REPO_ROOT}/.venv/bin/alembic" ]]; then
+    "${REPO_ROOT}/.venv/bin/alembic" upgrade head
+else
+    python3 -m alembic upgrade head || true
+fi
+
 # If specific arguments are provided, pass them to pytest; otherwise run test suite
 if [[ $# -gt 0 ]]; then
     "${PYTEST_BIN}" "$@"
