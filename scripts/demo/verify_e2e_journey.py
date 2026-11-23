@@ -233,5 +233,19 @@ def run_verification():
     print(f"{BOLD}{GREEN}All User Journeys & Acceptance Criteria Verified (0 Failures){RESET}")
     print(f"{BOLD}{GREEN}======================================================================{RESET}\n")
 
+    print(f"{BOLD}{BLUE}======================================================================{RESET}")
+    print(f"{BOLD}{BLUE}Live Presentation Dashboards & Evaluation Links (Cmd+Click to open){RESET}")
+    print(f"{BOLD}{BLUE}======================================================================{RESET}")
+    print(f"  • Web Application (Next.js):     http://localhost:3000")
+    print(f"  • Swagger API Documentation:     http://localhost:8000/docs")
+    print(f"  • Grafana Metrics Dashboard:     http://localhost:3001 (admin / admin)")
+    print(f"  • Prometheus Metrics Explorer:   http://localhost:9090")
+    print(f"  • Qdrant Vector Console:         http://localhost:6333/dashboard")
+    print(f"  • MinIO S3 Object Storage:       http://localhost:9001 (minioadmin / minioadmin)")
+    print(f"  • Keycloak Identity Provider:    http://localhost:8080 (admin / admin)")
+    print(f"  • GitHub Actions CI/CD Pipeline: https://github.com/theCursedDevil/University-Knowledge-Assistant/actions")
+    print(f"  • JIRA Agile Project Board:      https://nightbladeninja.atlassian.net/jira/software/projects/UKA/boards")
+    print(f"{BOLD}{BLUE}======================================================================{RESET}\n")
+
 if __name__ == "__main__":
     run_verification()
