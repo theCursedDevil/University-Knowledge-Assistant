@@ -25,6 +25,7 @@ from backend.app.rag.extractor import extract_text_from_pdf
 from backend.app.rag.chunker import chunk_document_pages
 from backend.app.rag.embeddings import embedding_client
 from backend.app.rag.vector_store import vector_store
+from backend.app.core.metrics import DOCUMENT_PROCESSING_TOTAL
 
 
 class ProcessingResult(BaseModel):
@@ -168,6 +169,8 @@ async def _execute_pipeline(
             len(chunks),
         )
 
+        DOCUMENT_PROCESSING_TOTAL.labels(status="success").inc()
+
         return ProcessingResult(
             document_id=document_id,
             status="ready",
@@ -209,6 +212,8 @@ async def _execute_pipeline(
         except Exception as status_err:
             logger.error("Failed to update document status to 'failed': %s", status_err)
             await db.rollback()
+
+        DOCUMENT_PROCESSING_TOTAL.labels(status="failed").inc()
 
         return ProcessingResult(
             document_id=document_id,

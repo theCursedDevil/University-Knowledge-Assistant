@@ -1,0 +1,14 @@
+# Prometheus configuration for University Knowledge Assistant (C-MON, FR-MON, Prompt 27)
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  scrape_timeout: 10s
+
+scrape_configs:
+  - job_name: "uka-backend"
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["backend:8000", "uka-backend:8000", "host.docker.internal:8000"]
+        labels:
+          app: "university-knowledge-assistant"
+          env: "production"

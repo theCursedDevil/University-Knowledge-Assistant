@@ -15,4 +15,5 @@ resources:
   - base/keycloak.yaml
   - base/backend.yaml
   - base/frontend.yaml
+  - base/monitoring.yaml
   - ingress.yaml

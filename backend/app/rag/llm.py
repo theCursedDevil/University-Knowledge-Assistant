@@ -3,12 +3,14 @@
 Provides low-temperature completion generation using Groq's high-speed LLaMA 3.1 8B instant model.
 """
 
+import time
 from typing import Optional, AsyncGenerator
 from groq import AsyncGroq, GroqError
 
 from backend.app.core.config import get_settings
 from backend.app.core.logging import logger
 from backend.app.core.errors import ExternalServiceError
+from backend.app.core.metrics import LLM_REQUESTS_TOTAL, LLM_REQUEST_DURATION_SECONDS
 
 settings = get_settings()
 
@@ -52,8 +54,12 @@ class LLMClient:
             ExternalServiceError: If Groq API request fails and no fallback is active.
         """
         # Offline or unit-test fallback when no active Groq key is configured
+        start_time = time.perf_counter()
         if not self.api_key or self.api_key.startswith("your_groq") or self.api_key == "mock-groq-key":
             logger.info("Generating mock grounded response (offline development mode)...")
+            duration = time.perf_counter() - start_time
+            LLM_REQUESTS_TOTAL.labels(model=self.model, status="success").inc()
+            LLM_REQUEST_DURATION_SECONDS.labels(model=self.model).observe(duration)
             return self._mock_grounded_response(user_prompt)
 
         try:
@@ -66,12 +72,21 @@ class LLMClient:
                 temperature=self.temperature,
                 max_tokens=self.max_tokens,
             )
+            duration = time.perf_counter() - start_time
+            LLM_REQUESTS_TOTAL.labels(model=self.model, status="success").inc()
+            LLM_REQUEST_DURATION_SECONDS.labels(model=self.model).observe(duration)
             answer = response.choices[0].message.content or ""
             return answer.strip()
         except GroqError as exc:
+            duration = time.perf_counter() - start_time
+            LLM_REQUESTS_TOTAL.labels(model=self.model, status="error").inc()
+            LLM_REQUEST_DURATION_SECONDS.labels(model=self.model).observe(duration)
             logger.error("Groq API completion failed: %s", exc)
             raise ExternalServiceError("GroqLLM", f"LLM generation failed: {exc}")
         except Exception as exc:
+            duration = time.perf_counter() - start_time
+            LLM_REQUESTS_TOTAL.labels(model=self.model, status="error").inc()
+            LLM_REQUEST_DURATION_SECONDS.labels(model=self.model).observe(duration)
             logger.error("Unexpected error during LLM generation: %s", exc)
             raise ExternalServiceError("GroqLLM", f"Unexpected error: {exc}")
 
@@ -91,6 +106,7 @@ class LLMClient:
             ExternalServiceError: If Groq API streaming fails.
         """
         # Offline or unit-test fallback when no active Groq key is configured
+        LLM_REQUESTS_TOTAL.labels(model=self.model, status="stream_started").inc()
         if not self.api_key or self.api_key.startswith("your_groq") or self.api_key == "mock-groq-key":
             logger.info("Generating mock streamed grounded response (offline development mode)...")
             mock_text = self._mock_grounded_response(user_prompt)

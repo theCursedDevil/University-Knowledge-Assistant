@@ -4,9 +4,10 @@ Configures CORS middleware, exception handlers, Swagger/OpenAPI documentation,
 lifecycle logging, and routes.
 """
 
+import time
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
-from fastapi import FastAPI, Request, status
+from fastapi import FastAPI, Request, Response, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -18,6 +19,13 @@ from backend.app.core.errors import (
     AppException,
     ErrorDetail,
     ErrorResponse,
+)
+from backend.app.core.metrics import (
+    HTTP_REQUESTS_TOTAL,
+    HTTP_REQUEST_DURATION_SECONDS,
+    HTTP_ERRORS_TOTAL,
+    get_metrics_payload,
+    update_postgres_replication_lag,
 )
 from backend.app.api.router import api_router
 from backend.app.api.health import router as health_router
@@ -139,6 +147,34 @@ def create_app() -> FastAPI:
             response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains; preload"
         return response
 
+    # 4. Prometheus Application Metrics Middleware (C-MON, FR-MON, Prompt 27)
+    @app.middleware("http")
+    async def prometheus_metrics_middleware(request: Request, call_next):
+        # Avoid collecting metrics on Prometheus scrape endpoint itself
+        if request.url.path == "/metrics":
+            return await call_next(request)
+
+        start_time = time.perf_counter()
+        endpoint = request.url.path
+        method = request.method
+        try:
+            response = await call_next(request)
+            duration = time.perf_counter() - start_time
+            status_code = str(response.status_code)
+
+            HTTP_REQUESTS_TOTAL.labels(method=method, endpoint=endpoint, status_code=status_code).inc()
+            HTTP_REQUEST_DURATION_SECONDS.labels(method=method, endpoint=endpoint).observe(duration)
+            if response.status_code >= 400:
+                HTTP_ERRORS_TOTAL.labels(method=method, endpoint=endpoint, status_code=status_code).inc()
+
+            return response
+        except Exception:
+            duration = time.perf_counter() - start_time
+            HTTP_REQUESTS_TOTAL.labels(method=method, endpoint=endpoint, status_code="500").inc()
+            HTTP_REQUEST_DURATION_SECONDS.labels(method=method, endpoint=endpoint).observe(duration)
+            HTTP_ERRORS_TOTAL.labels(method=method, endpoint=endpoint, status_code="500").inc()
+            raise
+
     # 4. Global Exception Handlers
     @app.exception_handler(AppException)
     async def app_exception_handler(request: Request, exc: AppException) -> JSONResponse:
@@ -237,6 +273,13 @@ def create_app() -> FastAPI:
 
     # 4. Mount Versioned API Router (/api/v1)
     app.include_router(api_router, prefix=settings.API_V1_PREFIX)
+
+    # 5. Prometheus Scrape Endpoint (C-MON, FR-MON, Prompt 27)
+    @app.get("/metrics", include_in_schema=False)
+    async def metrics_endpoint():
+        await update_postgres_replication_lag()
+        payload, content_type = get_metrics_payload()
+        return Response(content=payload, media_type=content_type)
 
     return app
 

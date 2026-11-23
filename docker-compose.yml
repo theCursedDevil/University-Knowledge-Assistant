@@ -286,6 +286,52 @@ services:
     networks:
       - uka-network
 
+  # ----------------------------------------------------------------------------
+  # 10. Prometheus Time-Series Monitoring (C-MON, FR-MON, Prompt 27)
+  # ----------------------------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    container_name: uka-prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=2h"
+      - "--storage.tsdb.retention.size=100MB"
+      - "--web.enable-lifecycle"
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - uka-network
+
+  # ----------------------------------------------------------------------------
+  # 11. Grafana Operational Dashboards (C-MON, FR-MON, Prompt 27)
+  # ----------------------------------------------------------------------------
+  grafana:
+    image: grafana/grafana:10.4.0
+    container_name: uka-grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
+    ports:
+      - "3001:3000"
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/etc/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    networks:
+      - uka-network
+
 # ------------------------------------------------------------------------------
 # Named Persistent Storage Volumes
 # ------------------------------------------------------------------------------
@@ -296,6 +342,8 @@ volumes:
   redis_data:
   qdrant_data:
   minio_data:
+  prometheus_data:
+  grafana_data:
 
 # ------------------------------------------------------------------------------
 # Dedicated Internal Bridge Network
