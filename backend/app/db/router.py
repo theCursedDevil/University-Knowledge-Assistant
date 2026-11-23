@@ -116,8 +116,9 @@ class ReplicaRouter:
 
     def record_user_write(
         self,
-        user_id: Union[uuid.UUID, str],
+        user_id: Union[uuid.UUID, str, Any],
         window_seconds: Optional[float] = None,
+        secondary_id: Optional[str] = None,
     ) -> None:
         """Records that a user has performed a database write.
 
@@ -126,24 +127,35 @@ class ReplicaRouter:
         """
         if not user_id:
             return
-        uid = str(user_id)
+
+        uids = set()
+        if hasattr(user_id, "id"):
+            uids.add(str(user_id.id))
+        if hasattr(user_id, "email") and user_id.email:
+            uids.add(str(user_id.email))
+        if isinstance(user_id, (str, uuid.UUID)):
+            uids.add(str(user_id))
+        if secondary_id:
+            uids.add(str(secondary_id))
+
         duration = (
             window_seconds
             if window_seconds is not None
             else settings.READ_YOUR_WRITES_WINDOW_SECONDS
         )
 
-        # 1. In-memory monotonic clock
-        self._user_write_windows[uid] = time.monotonic() + duration
+        for uid in uids:
+            # 1. In-memory monotonic clock
+            self._user_write_windows[uid] = time.monotonic() + duration
 
-        # 2. Redis distributed key
-        if self._redis_client:
-            try:
-                key = f"uka:user_write_window:{uid}"
-                ms = max(50, int(duration * 1000))
-                self._redis_client.set(key, str(time.time()), px=ms)
-            except Exception as exc:
-                logger.warning("Failed to record user write window in Redis: %s", exc)
+            # 2. Redis distributed key
+            if self._redis_client:
+                try:
+                    key = f"uka:user_write_window:{uid}"
+                    ms = max(50, int(duration * 1000))
+                    self._redis_client.set(key, str(time.time()), px=ms)
+                except Exception as exc:
+                    logger.warning("Failed to record user write window in Redis: %s", exc)
 
     def is_in_write_window(self, user_id: Optional[Union[uuid.UUID, str]]) -> bool:
         """Checks whether the user is within their active read-your-own-writes window."""

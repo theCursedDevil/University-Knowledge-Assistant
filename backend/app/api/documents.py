@@ -153,7 +153,8 @@ async def upload_document(
     category: str = Form(..., description="Document category (e.g. 'Academic', 'Admissions', 'Hostel', 'Regulations')."),
     title: Optional[str] = Form(default=None, description="Optional custom document title."),
     role_restriction: Optional[str] = Form(default=None, description="Optional role restriction: 'all', 'student', 'faculty', 'admin'."),
-    auto_process: bool = Query(default=True, description="Automatically trigger processing pipeline in background."),
+    auto_process: Optional[bool] = Query(default=None, description="Automatically trigger processing pipeline in background."),
+    auto_process_form: Optional[str] = Form(default=None, alias="auto_process", description="Form field for auto_process."),
     current_user: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> DocumentUploadResponse:
@@ -252,7 +253,7 @@ async def upload_document(
         await db.commit()
         await db.refresh(document)
         # Record write for read-your-own-writes session consistency (FR-DBSYNC-003)
-        replica_router.record_user_write(current_user.id)
+        replica_router.record_user_write(current_user.id, secondary_id=getattr(current_user, "email", None))
         # Invalidate cached document listings and admin stats on upload (FR-CACHE-001)
         cache_client.invalidate_document_caches()
     except Exception as exc:
@@ -262,7 +263,13 @@ async def upload_document(
         await db.rollback()
         raise
 
-    if auto_process:
+    should_auto_process = True
+    if auto_process is not None:
+        should_auto_process = auto_process
+    elif auto_process_form is not None:
+        should_auto_process = str(auto_process_form).strip().lower() in ("true", "1", "yes")
+
+    if should_auto_process:
         background_tasks.add_task(process_document, doc_id)
 
     logger.info("Document successfully uploaded: id=%s title='%s' category='%s' role_restriction='%s'", doc_id, doc_title, category, sanitized_role_restr)
@@ -595,7 +602,7 @@ async def update_document(
     await db.commit()
 
     # 7. Record write for read-your-own-writes session consistency (FR-DBSYNC-003)
-    replica_router.record_user_write(current_user.id)
+    replica_router.record_user_write(current_user.id, secondary_id=getattr(current_user, "email", None))
     cache_client.invalidate_document_caches(document_id=str(id))
 
     # 8. Reload refreshed document
@@ -652,7 +659,7 @@ async def delete_document(
         # 4. Delete from database (cascades to document_chunks_meta)
         await db.delete(document)
         await db.commit()
-        replica_router.record_user_write(current_user.id)
+        replica_router.record_user_write(current_user.id, secondary_id=getattr(current_user, "email", None))
         cache_client.invalidate_document_caches(document_id=str(id))
 
         logger.info("Document deleted: id=%s title='%s'", id, document.title)

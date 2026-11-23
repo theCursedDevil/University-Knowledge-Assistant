@@ -3,6 +3,7 @@
 Produces 384-dimensional dense vectors with cosine normalization on local CPU.
 """
 
+import threading
 from typing import List, Optional
 from backend.app.core.config import get_settings
 from backend.app.core.logging import logger
@@ -18,20 +19,23 @@ class EmbeddingClient:
         self.model_name = model_name or settings.EMBEDDING_MODEL_NAME
         self.dimension = 384
         self._model = None
+        self._lock = threading.Lock()
 
     @property
     def model(self):
-        """Lazy-loads the SentenceTransformer model on CPU."""
+        """Lazy-loads the SentenceTransformer model on CPU with thread-safety."""
         if self._model is None:
-            try:
-                from sentence_transformers import SentenceTransformer
+            with self._lock:
+                if self._model is None:
+                    try:
+                        from sentence_transformers import SentenceTransformer
 
-                logger.info("Loading SentenceTransformer model '%s' on CPU...", self.model_name)
-                self._model = SentenceTransformer(self.model_name, device="cpu")
-                logger.info("Model '%s' loaded successfully.", self.model_name)
-            except Exception as exc:
-                logger.error("Failed to load SentenceTransformer '%s': %s", self.model_name, exc)
-                raise ExternalServiceError("EmbeddingModel", f"Model load failure: {exc}")
+                        logger.info("Loading SentenceTransformer model '%s' on CPU...", self.model_name)
+                        self._model = SentenceTransformer(self.model_name, device="cpu")
+                        logger.info("Model '%s' loaded successfully.", self.model_name)
+                    except Exception as exc:
+                        logger.error("Failed to load SentenceTransformer '%s': %s", self.model_name, exc)
+                        raise ExternalServiceError("EmbeddingModel", f"Model load failure: {exc}")
         return self._model
 
     def embed_texts(self, texts: List[str], batch_size: int = 32) -> List[List[float]]:

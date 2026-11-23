@@ -1,0 +1,2 @@
+Method,Name,Error,Occurrences,First Seen,Last Seen
+POST,POST /api/v1/rag/query,HTTPError('429 Client Error: Too Many Requests for url: POST /api/v1/rag/query'),23,2026-11-23T00:53:21Z,2026-11-23T00:53:29Z

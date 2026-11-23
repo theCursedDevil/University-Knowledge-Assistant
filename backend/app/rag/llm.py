@@ -126,17 +126,34 @@ class LLMClient:
         if "<no_context>" in user_prompt:
             return settings.RAG_INSUFFICIENT_CONTEXT_MESSAGE
 
-        # If retrieved context contains CGPA or attendance facts
-        if "CGPA of 6.0" in user_prompt or "CGPA" in user_prompt:
-            return (
-                "Based on the university academic regulations [Source 1], undergraduate students "
-                "must maintain a minimum Cumulative Grade Point Average (CGPA) of 6.0 out of 10.0 "
-                "and at least 75% physical attendance in all registered sessions."
-            )
+        import re
+
+        sources = re.findall(r'<source index="(\d+)"[^>]*>(.*?)</source>', user_prompt, re.DOTALL)
+        if not sources:
+            return settings.RAG_INSUFFICIENT_CONTEXT_MESSAGE
+
+        q_match = re.search(r"<user_question>(.*?)</user_question>", user_prompt, re.DOTALL)
+        question = q_match.group(1).lower() if q_match else ""
+        q_words = set(re.findall(r"\b\w{4,}\b", question)) - {"what", "when", "where", "which", "would", "could", "should"}
+
+        first_idx, first_text = sources[0]
+        sentences = [s.strip() for s in re.split(r"[.\n]+", first_text) if len(s.strip()) > 15]
+
+        best_sentence = None
+        best_overlap = -1
+        for s in sentences:
+            s_words = set(re.findall(r"\b\w{4,}\b", s.lower()))
+            overlap = len(q_words & s_words)
+            if overlap > best_overlap:
+                best_overlap = overlap
+                best_sentence = s
+
+        if best_sentence:
+            return f"Based on the university regulations [Source {first_idx}], {best_sentence.strip()}."
 
         return (
-            "According to the provided university documents [Source 1], the policy specifies "
-            "the academic regulations outlined in the reference documents."
+            f"According to the provided university documents [Source {first_idx}], "
+            f"the policy specifies: {first_text.strip()[:200]}."
         )
 
 
