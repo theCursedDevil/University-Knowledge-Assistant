@@ -150,8 +150,8 @@ University-Knowledge-Assistant/
 
 ## 6. Quickstart Guide (Local Development)
 
-### 6.1 Launch with Docker Compose (Recommended)
-Launch the entire 11-container topology with a single command:
+### 6.1 Full-Stack Container Development (Docker Compose)
+Launch and manage the entire 11-container topology:
 ```bash
 # 1. Clone repository and copy configuration
 git clone https://github.com/theCursedDevil/University-Knowledge-Assistant.git
@@ -161,44 +161,144 @@ cp .env.example .env
 # 2. Add your Groq API key in .env (or Gemini API key)
 # GROQ_API_KEY=gsk_...
 
-# 3. Launch all services
-docker compose up -d
+# 3. Build and launch all 11 services in the background
+docker compose up --build -d
 
-# 4. Verify stack health
+# 4. Verify stack health and port mappings
 docker compose ps
+
+# 5. View live logs (e.g., backend or postgres-primary)
+docker compose logs -f backend
+
+# 6. Stop and clean up containers when finished
+docker compose down
 ```
 
 Visit the application at: `http://localhost:3000`.
 
-### 6.2 Native Development (Fast Hot-Reloading)
+---
+
+### 6.2 Local Native Development (Fast Hot-Reloading)
+
+For rapid code editing without container rebuilds:
 
 ```bash
 # 1. Start support services in Docker
 docker compose up -d postgres-primary redis qdrant minio keycloak
 
-# 2. Run backend
+# 2. Backend Setup (Terminal 1)
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r backend/requirements.txt
 alembic upgrade head
 uvicorn backend.app.main:app --host 0.0.0.0 --port 8000 --reload
 
-# 3. In another terminal, run frontend
+# 3. Frontend Setup (Terminal 2)
 cd frontend
 npm install
 npm run dev
+
+# 4. Frontend Production Build Check
+npm run lint
+npm run build
 ```
 
-### 6.3 Execute Automated Verification Suites
+---
+
+### 6.3 Kubernetes Orchestration & Cluster Development (Minikube / kubectl)
+
+Deploy declarative manifests to local Kubernetes:
+
 ```bash
-# Run backend test suite (93 automated tests)
+# 1. Launch Minikube cluster and enable required addons
+minikube start --cpus=4 --memory=8192
+minikube addons enable ingress
+minikube addons enable metrics-server
+
+# 2. Apply all declarative Kubernetes manifests
+kubectl apply -f kubernetes/base/
+kubectl apply -f kubernetes/postgres/
+kubectl apply -f kubernetes/ingress.yaml
+
+# 3. Inspect Pods, Services, Ingress, and HorizontalPodAutoscaler
+kubectl get pods -w
+kubectl get services
+kubectl get ingress
+kubectl get hpa uka-backend-hpa
+
+# 4. Demonstrate Zero-Downtime Rolling Update
+./scripts/deploy/deploy-k8s.sh
+
+# 5. Demonstrate Automated Rollback
+./scripts/deploy/rollback-k8s.sh
+```
+
+---
+
+### 6.4 Database Migrations & Multi-Replica Inspection
+
+Manage PostgreSQL schema migrations and observe replication synchronization:
+
+```bash
+# Apply pending schema migrations
+alembic upgrade head
+
+# Check current database migration revision
+alembic current
+
+# Create a new migration after model edits
+alembic revision --autogenerate -m "describe_schema_change"
+
+# Inspect active PostgreSQL WAL streaming replication from Primary
+docker exec -it postgres-primary psql -U postgres -d university_assistant \
+  -c "SELECT application_name, client_addr, state, sync_state FROM pg_stat_replication;"
+
+# Sample real-time replication lag in bytes
+docker exec -it postgres-primary psql -U postgres -d university_assistant \
+  -c "SELECT application_name, COALESCE(pg_wal_lsn_diff(pg_current_wal_lsn(), replay_lsn), 0) AS lag_bytes FROM pg_stat_replication;"
+```
+
+---
+
+### 6.5 Quality Assurance, Linting & Automated Test Suites
+
+Run the project quality gates locally before pushing commits:
+
+```bash
+# Run backend code linter (Ruff)
+./scripts/ci/lint-backend.sh
+
+# Run frontend code linter (ESLint)
+./scripts/ci/lint-frontend.sh
+
+# Run full backend test suite (93 automated pytest tests)
 ./scripts/ci/test-backend.sh
 
-# Run frontend linting & production build
-./scripts/ci/lint-frontend.sh && ./scripts/ci/build-frontend.sh
+# Run frontend production compilation check (Next.js 14)
+./scripts/ci/build-frontend.sh
 
 # Run live end-to-end user journey demonstration (all 34 checkpoints)
 python scripts/demo/verify_e2e_journey.py
+```
+
+---
+
+### 6.6 Monitoring & Telemetry Dashboards
+
+Visualize system performance, request volume, and replication lag:
+
+```bash
+# Ensure monitoring stack is running
+docker compose up -d prometheus grafana backend
+
+# 1. Open Grafana Dashboard:
+#    URL: http://localhost:3001 (Credentials: admin / admin)
+
+# 2. Open Prometheus Metrics Explorer:
+#    URL: http://localhost:9090 (Query: uka_postgres_replication_lag_bytes)
+
+# 3. Open Raw Application Metrics Endpoint:
+#    URL: http://localhost:8000/metrics
 ```
 
 ---
