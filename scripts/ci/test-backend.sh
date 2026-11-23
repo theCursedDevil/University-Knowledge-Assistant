@@ -49,6 +49,7 @@ else
                     backend/tests/test_role_restricted_documents.py \
                     backend/tests/test_advanced_rag.py \
                     backend/tests/test_monitoring.py \
+                    backend/tests/test_optional_enhancements.py \
                     -v --tb=short
 fi
 

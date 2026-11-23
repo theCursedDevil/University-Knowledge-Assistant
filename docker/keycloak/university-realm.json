@@ -39,6 +39,27 @@
   "defaultRoles": [
     "student"
   ],
+  "identityProviders": [
+    {
+      "alias": "google",
+      "displayName": "Google",
+      "providerId": "google",
+      "enabled": true,
+      "trustEmail": true,
+      "storeToken": false,
+      "addReadTokenRoleOnCreate": false,
+      "authenticateByDefault": false,
+      "linkOnly": false,
+      "firstBrokerLoginFlowAlias": "first broker login",
+      "config": {
+        "clientId": "${env.GOOGLE_CLIENT_ID:placeholder-google-client-id}",
+        "clientSecret": "${env.GOOGLE_CLIENT_SECRET:placeholder-google-client-secret}",
+        "defaultScope": "openid profile email",
+        "syncMode": "IMPORT",
+        "useUserinfoEndpoint": "true"
+      }
+    }
+  ],
   "clients": [
     {
       "clientId": "university-assistant-client",
