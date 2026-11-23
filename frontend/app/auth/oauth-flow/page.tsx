@@ -69,7 +69,7 @@ export default function OAuthFlowPage() {
             </div>
             <div>
               <h1 className="text-base font-bold text-zinc-900 dark:text-zinc-100">
-                Keycloak OAuth 2.0 / OIDC Flow (W-02)
+                Keycloak OAuth 2.0 / OIDC Flow
               </h1>
               <p className="text-xs text-zinc-500 dark:text-zinc-400">
                 Authorization Code Flow with PKCE (Proof Key for Code Exchange)

@@ -17,8 +17,6 @@ import {
   Users,
   LogOut,
   Shield,
-  KeyRound,
-  ExternalLink,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { cn } from "@/lib/utils";
@@ -49,13 +47,6 @@ export function Sidebar({ isOpen, onClose }: { isOpen?: boolean; onClose?: () =>
     { name: "Metadata Management", href: "/admin/metadata", icon: Layers },
     { name: "Analytics Dashboard", href: "/admin/analytics", icon: BarChart3 },
     { name: "User Management", href: "/admin/users", icon: Users },
-  ];
-
-  const authNavItems: NavItem[] = [
-    { name: "Login (W-01)", href: "/login", icon: KeyRound },
-    { name: "Sign Up (W-14)", href: "/signup", icon: User },
-    { name: "Forgot Password (W-15)", href: "/forgot-password", icon: KeyRound },
-    { name: "OAuth Flow (W-02)", href: "/auth/oauth-flow", icon: ExternalLink },
   ];
 
   return (
@@ -139,35 +130,6 @@ export function Sidebar({ isOpen, onClose }: { isOpen?: boolean; onClose?: () =>
               </nav>
             </div>
           )}
-
-          {/* Authentication & Wireframe Quick Links */}
-          <div>
-            <div className="px-3 mb-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
-              Auth & Wireframes
-            </div>
-            <nav className="space-y-0.5">
-              {authNavItems.map((item) => {
-                const isActive = pathname === item.href;
-                const Icon = item.icon;
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    onClick={onClose}
-                    className={cn(
-                      "flex items-center gap-3 px-3 py-2 rounded-md text-xs font-medium transition",
-                      isActive
-                        ? "bg-zinc-200/70 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 font-semibold"
-                        : "text-zinc-500 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-900 hover:text-zinc-900 dark:hover:text-zinc-100"
-                    )}
-                  >
-                    <Icon className="w-3.5 h-3.5 text-zinc-400" />
-                    <span>{item.name}</span>
-                  </Link>
-                );
-              })}
-            </nav>
-          </div>
         </div>
 
         {/* Footer User Info & Session Card */}

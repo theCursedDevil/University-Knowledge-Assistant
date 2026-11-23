@@ -34,7 +34,7 @@ export default function ForgotPasswordPage() {
             <KeyRound className="w-5 h-5 text-accent" />
           </div>
           <h1 className="text-xl font-bold tracking-tight text-zinc-900 dark:text-zinc-100">
-            Reset Password (W-15)
+            Reset Password
           </h1>
           <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1 max-w-xs">
             Enter your registered university email to receive password reset instructions

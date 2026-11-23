@@ -39,7 +39,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [currentUser, setCurrentUser] = useState<UserProfile>(MOCK_USERS[0]);
   const [role, setRole] = useState<Role>("student");
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(true);
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
   const [allUsers, setAllUsers] = useState<UserProfile[]>(MOCK_USERS);
   const [preferences, setPreferences] = useState<UserPreferences>(DEFAULT_PREFERENCES);
   const [isLoading, setIsLoading] = useState<boolean>(false);
@@ -56,9 +56,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // Load active user from backend GET /me on startup
   const loadUserFromBackend = useCallback(async (targetRole?: Role, targetEmail?: string) => {
+    const storedRole = typeof window !== "undefined" ? localStorage.getItem("uka_user_role") : null;
+    const storedToken = typeof window !== "undefined" ? localStorage.getItem("uka_access_token") : null;
+
+    // If no active session exists and no role explicitly requested, remain unauthenticated
+    if (!storedRole && !storedToken && !targetRole) {
+      setIsAuthenticated(false);
+      return;
+    }
+
     setIsLoading(true);
     try {
-      const activeRole = targetRole || (localStorage.getItem("uka_user_role") as Role) || "student";
+      const activeRole = targetRole || (storedRole as Role) || "student";
       const activeEmail = targetEmail || localStorage.getItem("uka_user_email") || undefined;
       const apiUser: ApiUser = await fetchCurrentUser(activeRole, activeEmail);
 
@@ -76,11 +85,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       localStorage.setItem("uka_user_role", profile.role);
       localStorage.setItem("uka_user_email", profile.email);
     } catch {
-      // Fallback to local persona state if backend is unreachable during build
-      const fallbackRole = targetRole || "student";
-      const fallbackUser = MOCK_USERS.find((u) => u.role === fallbackRole) || MOCK_USERS[0];
-      setCurrentUser(fallbackUser);
-      setRole(fallbackUser.role);
+      if (storedRole || targetRole) {
+        const fallbackRole = targetRole || (storedRole as Role) || "student";
+        const fallbackUser = MOCK_USERS.find((u) => u.role === fallbackRole) || MOCK_USERS[0];
+        setCurrentUser(fallbackUser);
+        setRole(fallbackUser.role);
+        setIsAuthenticated(true);
+      } else {
+        setIsAuthenticated(false);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -144,6 +157,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setIsAuthenticated(true);
       localStorage.setItem("uka_user_role", profile.role);
       localStorage.setItem("uka_user_email", profile.email);
+      if (res.access_token) {
+        localStorage.setItem("uka_access_token", res.access_token);
+      }
     } catch {
       // Fallback local provision
       const newUser: UserProfile = {
@@ -166,10 +182,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setIsAuthenticated(false);
     localStorage.removeItem("uka_user_role");
     localStorage.removeItem("uka_user_email");
+    localStorage.removeItem("uka_access_token");
     try {
       await logoutBackend();
     } catch {
       // Ignore background logout network errors
+    }
+    if (typeof window !== "undefined") {
+      window.location.href = "/login";
     }
   };
 

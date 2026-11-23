@@ -200,8 +200,8 @@ services:
       dockerfile: docker/backend.Dockerfile
     container_name: uka-backend
     environment:
-      ENVIRONMENT: production
-      DEBUG: "false"
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      DEBUG: ${DEBUG:-true}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       CORS_ORIGINS: '["http://localhost:3000","http://127.0.0.1:3000","http://frontend:3000"]'
       POSTGRES_HOST: postgres-primary

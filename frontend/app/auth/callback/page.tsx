@@ -53,6 +53,9 @@ function CallbackContent() {
       try {
         const redirectUri = `${window.location.origin}/auth/callback`;
         const result = await exchangeAuthCode(code, codeVerifier, redirectUri);
+        if (result.access_token) {
+          localStorage.setItem("uka_access_token", result.access_token);
+        }
 
         // Clean up ephemeral PKCE parameters from sessionStorage
         sessionStorage.removeItem("uka_pkce_verifier");

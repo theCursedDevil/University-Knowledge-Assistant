@@ -47,7 +47,7 @@ export default function PreferencesPage() {
             <div className="flex items-center gap-2 mb-1">
               <Sliders className="w-5 h-5 text-accent" />
               <h1 className="text-xl font-bold tracking-tight text-zinc-900 dark:text-zinc-100">
-                Account Preferences (W-17)
+                Account Preferences
               </h1>
             </div>
             <p className="text-xs text-zinc-500 dark:text-zinc-400">
@@ -60,7 +60,7 @@ export default function PreferencesPage() {
             className="inline-flex items-center gap-1.5 text-xs text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 transition self-start sm:self-auto"
           >
             <ArrowLeft className="w-3.5 h-3.5" />
-            Back to Profile (W-10)
+            Back to Profile
           </Link>
         </div>
 

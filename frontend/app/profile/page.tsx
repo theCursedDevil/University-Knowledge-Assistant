@@ -66,11 +66,11 @@ export default function ProfilePage() {
             <div className="flex items-center gap-2 mb-1">
               <User className="w-5 h-5 text-accent" />
               <h1 className="text-xl font-bold tracking-tight text-zinc-900 dark:text-zinc-100">
-                User Profile (W-10)
+                User Profile
               </h1>
             </div>
             <p className="text-xs text-zinc-500 dark:text-zinc-400">
-              Read-only institutional profile retrieved via Keycloak OIDC authentication handshake
+              Institutional profile retrieved via Keycloak OIDC authentication handshake
             </p>
           </div>
 
@@ -79,7 +79,7 @@ export default function ProfilePage() {
             className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-md border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-zinc-800 dark:text-zinc-200 transition cursor-pointer self-start sm:self-auto"
           >
             <Sliders className="w-3.5 h-3.5 text-accent" />
-            Edit Preferences (W-17)
+            Edit Preferences
           </Link>
         </div>
 

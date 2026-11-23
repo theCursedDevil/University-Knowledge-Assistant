@@ -230,7 +230,7 @@ export default function DashboardPage() {
               <div className="flex items-center gap-2">
                 <Clock className="w-4 h-4 text-accent" />
                 <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-                  Recent Conversations (W-06)
+                  Recent Conversations
                 </h3>
               </div>
               <Link href="/conversations" className="text-xs text-accent hover:underline flex items-center gap-1 font-medium">
@@ -269,7 +269,7 @@ export default function DashboardPage() {
               <div className="flex items-center gap-2">
                 <Layers className="w-4 h-4 text-accent" />
                 <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-                  Indexed University Documents (W-07)
+                  Indexed University Documents
                 </h3>
               </div>
               <Link href="/documents" className="text-xs text-accent hover:underline flex items-center gap-1 font-medium">

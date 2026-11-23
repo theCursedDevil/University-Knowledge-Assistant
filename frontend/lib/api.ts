@@ -12,9 +12,14 @@ function getAuthHeaders(role?: string, email?: string): Record<string, string> {
   if (typeof window !== "undefined") {
     const savedRole = role || localStorage.getItem("uka_user_role") || "student";
     const savedEmail = email || localStorage.getItem("uka_user_email") || `${savedRole}@university.edu`;
+    const savedToken = localStorage.getItem("uka_access_token");
     headers["X-Dev-Role"] = savedRole;
     headers["X-Dev-Email"] = savedEmail;
-    headers["Authorization"] = `Bearer dev-token-${savedRole}`;
+    if (savedToken) {
+      headers["Authorization"] = `Bearer ${savedToken}`;
+    } else {
+      headers["Authorization"] = `Bearer dev-token-${savedRole}`;
+    }
   } else {
     headers["X-Dev-Role"] = role || "student";
     headers["X-Dev-Email"] = email || "student@university.edu";
@@ -403,6 +408,7 @@ export async function uploadDocument(formData: FormData, autoProcess = true): Pr
   const res = await fetch(url, {
     method: "POST",
     headers, // Do NOT set Content-Type so browser sets multipart boundary
+    credentials: "include",
     body: formData,
   });
   if (!res.ok) {
@@ -417,6 +423,7 @@ export async function processDocument(id: string): Promise<any> {
   const res = await fetch(`${API_BASE_URL}/documents/${id}/process`, {
     method: "POST",
     headers,
+    credentials: "include",
   });
   if (!res.ok) {
     const errBody = await res.json().catch(() => ({}));

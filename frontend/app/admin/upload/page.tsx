@@ -128,7 +128,7 @@ export default function DocumentUploadPage() {
             <div className="flex items-center gap-2 mb-1">
               <UploadCloud className="w-5 h-5 text-accent" />
               <h1 className="text-xl font-bold tracking-tight text-zinc-900 dark:text-zinc-100">
-                Admin: Document Ingestion (W-11)
+                Document Ingestion
               </h1>
             </div>
             <p className="text-xs text-zinc-500 dark:text-zinc-400">
@@ -141,7 +141,7 @@ export default function DocumentUploadPage() {
             className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition text-zinc-700 dark:text-zinc-300 self-start sm:self-auto cursor-pointer"
           >
             <Layers className="w-3.5 h-3.5" />
-            <span>Metadata Management (W-12)</span>
+            <span>Metadata Management</span>
           </Link>
         </div>
 
@@ -189,7 +189,7 @@ export default function DocumentUploadPage() {
                   href={`/documents/${uploadedDoc.id}`}
                   className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-md bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 hover:bg-zinc-800 transition cursor-pointer"
                 >
-                  <span>Preview Document (W-08)</span>
+                  <span>Preview Document</span>
                   <ArrowRight className="w-3.5 h-3.5" />
                 </Link>
               )}

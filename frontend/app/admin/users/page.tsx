@@ -109,7 +109,7 @@ export default function AdminUserManagementPage() {
             <div className="flex items-center gap-2 mb-1">
               <Users className="w-5 h-5 text-accent" />
               <h1 className="text-xl font-bold tracking-tight text-zinc-900 dark:text-zinc-100">
-                Admin: User Management (W-18)
+                User Management
               </h1>
             </div>
             <p className="text-xs text-zinc-500 dark:text-zinc-400">

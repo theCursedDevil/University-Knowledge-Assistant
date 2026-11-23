@@ -510,7 +510,7 @@ export default function ChatPage() {
                   className="inline-flex items-center gap-1.5 text-xs text-accent hover:underline font-medium"
                 >
                   <ExternalLink className="w-3 h-3" />
-                  Open Document in Catalog (W-07)
+                  Open Document in Catalog
                 </Link>
               </div>
             </div>

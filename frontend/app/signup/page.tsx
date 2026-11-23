@@ -61,7 +61,7 @@ export default function SignUpPage() {
             <Sparkles className="w-5 h-5 text-accent" />
           </div>
           <h1 className="text-xl font-bold tracking-tight text-zinc-900 dark:text-zinc-100">
-            Create an Account (W-14)
+            Create an Account
           </h1>
           <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
             Register your university portal identity for academic assistance
@@ -198,7 +198,7 @@ export default function SignUpPage() {
         <p className="text-center text-xs text-zinc-500 dark:text-zinc-400 mt-6">
           Already registered?{" "}
           <Link href="/login" className="font-semibold text-accent hover:underline">
-            Sign In (W-01)
+            Sign In
           </Link>
         </p>
       </div>
