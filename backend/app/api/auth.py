@@ -126,7 +126,7 @@ async def get_me(
 async def get_keycloak_config() -> KeycloakConfigResponse:
     """Returns public Keycloak OIDC parameters."""
     return KeycloakConfigResponse(
-        keycloak_url=settings.KEYCLOAK_URL,
+        keycloak_url=settings.public_keycloak_url,
         realm=settings.KEYCLOAK_REALM,
         client_id=settings.KEYCLOAK_CLIENT_ID,
     )

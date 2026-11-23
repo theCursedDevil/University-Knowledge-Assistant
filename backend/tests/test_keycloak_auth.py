@@ -63,7 +63,7 @@ def test_keycloak_config_endpoint(client: TestClient):
     resp = client.get("/auth/config")
     assert resp.status_code == 200
     data = resp.json()
-    assert data["keycloak_url"] == settings.KEYCLOAK_URL
+    assert data["keycloak_url"] == settings.public_keycloak_url
     assert data["realm"] == settings.KEYCLOAK_REALM
     assert data["client_id"] == settings.KEYCLOAK_CLIENT_ID
 

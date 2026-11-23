@@ -163,6 +163,10 @@ class Settings(BaseSettings):
 
     # Keycloak OIDC Authentication
     KEYCLOAK_URL: str = Field(default="http://localhost:8080")
+    KEYCLOAK_PUBLIC_URL: Optional[str] = Field(
+        default=None,
+        description="Public browser-facing Keycloak URL (e.g., http://localhost:8080).",
+    )
     KEYCLOAK_REALM: str = Field(default="university-realm")
     KEYCLOAK_CLIENT_ID: str = Field(default="university-assistant-client")
     KEYCLOAK_CLIENT_SECRET: Optional[str] = Field(default=None)
@@ -247,6 +251,15 @@ class Settings(BaseSettings):
         if self.REDIS_PASSWORD:
             return f"redis://:{self.REDIS_PASSWORD}@{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"
         return f"redis://{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"
+
+    @property
+    def public_keycloak_url(self) -> str:
+        """Public Keycloak URL returned to client-side browsers for OAuth redirects."""
+        if self.KEYCLOAK_PUBLIC_URL:
+            return self.KEYCLOAK_PUBLIC_URL.rstrip("/")
+        if "://keycloak:" in self.KEYCLOAK_URL:
+            return self.KEYCLOAK_URL.replace("://keycloak:", "://localhost:").rstrip("/")
+        return self.KEYCLOAK_URL.rstrip("/")
 
 
 @lru_cache

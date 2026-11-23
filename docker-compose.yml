@@ -223,6 +223,7 @@ services:
       MINIO_SECURE: "false"
       MINIO_BUCKET_NAME: ${MINIO_BUCKET_NAME:-university-documents}
       KEYCLOAK_URL: http://keycloak:8080
+      KEYCLOAK_PUBLIC_URL: ${KEYCLOAK_PUBLIC_URL:-http://localhost:8080}
       KEYCLOAK_REALM: university-realm
       KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-university-assistant-client}
       KEYCLOAK_CLIENT_SECRET: ${KEYCLOAK_CLIENT_SECRET:-}

@@ -53,7 +53,13 @@ export default function LoginPage() {
 
       try {
         const liveConfig = await fetchKeycloakConfig();
-        config = liveConfig;
+        if (liveConfig?.keycloak_url) {
+          // Guard against internal Docker hostname leaking to browser
+          if (liveConfig.keycloak_url.includes("://keycloak:")) {
+            liveConfig.keycloak_url = liveConfig.keycloak_url.replace("://keycloak:", "://localhost:");
+          }
+          config = liveConfig;
+        }
       } catch {
         // Fall back to default environment variables if backend endpoint unreachable
       }
