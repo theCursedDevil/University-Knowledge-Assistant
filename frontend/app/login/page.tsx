@@ -230,6 +230,43 @@ export default function LoginPage() {
             </div>
           </div>
 
+          {/* Quick Demo Credentials Autofill */}
+          <div className="flex items-center justify-between text-[11px] text-zinc-500 pt-0.5">
+            <span>Quick Fill Persona:</span>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => {
+                  setEmail("student@university.edu");
+                  setPassword("password123");
+                }}
+                className="px-2 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 font-medium transition cursor-pointer"
+              >
+                Student
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setEmail("faculty@university.edu");
+                  setPassword("password123");
+                }}
+                className="px-2 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 font-medium transition cursor-pointer"
+              >
+                Faculty
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setEmail("admin@university.edu");
+                  setPassword("password123");
+                }}
+                className="px-2 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 font-medium transition cursor-pointer"
+              >
+                Admin
+              </button>
+            </div>
+          </div>
+
           <button
             type="submit"
             disabled={isLoading}

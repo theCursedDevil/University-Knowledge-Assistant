@@ -42,7 +42,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
   const [allUsers, setAllUsers] = useState<UserProfile[]>(MOCK_USERS);
   const [preferences, setPreferences] = useState<UserPreferences>(DEFAULT_PREFERENCES);
-  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
 
   // Synchronize dark/light theme
   useEffect(() => {
@@ -62,6 +62,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // If no active session exists and no role explicitly requested, remain unauthenticated
     if (!storedRole && !storedToken && !targetRole) {
       setIsAuthenticated(false);
+      setIsLoading(false);
       return;
     }
 
