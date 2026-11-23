@@ -66,6 +66,19 @@ jobs:
       - name: Run Backend Linting (Ruff)
         run: ./scripts/ci/lint-backend.sh
 
+      - name: Start MinIO & Qdrant Test Services
+        run: |
+          docker run -d --name minio -p 9000:9000 -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin minio/minio:latest server /data
+          docker run -d --name qdrant -p 6333:6333 qdrant/qdrant:latest
+          for i in {1..30}; do
+            if curl -s http://localhost:9000/minio/health/live > /dev/null && curl -s http://localhost:6333/healthz > /dev/null; then
+              echo "MinIO and Qdrant are ready!"
+              break
+            fi
+            echo "Waiting for MinIO and Qdrant..."
+            sleep 1
+          done
+
       - name: Run Backend Automated Tests (pytest)
         env:
           POSTGRES_HOST: localhost
@@ -75,6 +88,12 @@ jobs:
           POSTGRES_DB: university_assistant
           REDIS_HOST: localhost
           REDIS_PORT: 6379
+          MINIO_ENDPOINT: localhost:9000
+          MINIO_ACCESS_KEY: minioadmin
+          MINIO_SECRET_KEY: minioadmin
+          MINIO_SECURE: "false"
+          QDRANT_HOST: localhost
+          QDRANT_PORT: 6333
           CACHE_ENABLED: "true"
           RATE_LIMIT_ENABLED: "false"
           SECRET_KEY: "ci-testing-secret-key-at-least-32-bytes"

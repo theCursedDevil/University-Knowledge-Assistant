@@ -74,63 +74,71 @@ def test_cors_restricted_to_frontend_origin(client: TestClient):
 
 def test_rate_limiter_sliding_window_logic():
     """Verifies that the rate limiter accurately tracks requests and enforces burst caps."""
+    orig_enabled = settings.RATE_LIMIT_ENABLED
+    settings.RATE_LIMIT_ENABLED = True
     rate_limiter.reset()
-    test_key = "unit-test-rate-limit-user"
-    limit = 3
+    try:
+        test_key = "unit-test-rate-limit-user"
+        limit = 3
 
-    # First 3 requests within 60s should succeed
-    for _ in range(limit):
-        rate_limiter.check_rate_limit(key=test_key, limit=limit, window_seconds=60)
+        # First 3 requests within 60s should succeed
+        for _ in range(limit):
+            rate_limiter.check_rate_limit(key=test_key, limit=limit, window_seconds=60)
 
-    # 4th request must raise RateLimitExceededError with retry_after
-    with pytest.raises(RateLimitExceededError) as exc_info:
-        rate_limiter.check_rate_limit(key=test_key, limit=limit, window_seconds=60)
+        # 4th request must raise RateLimitExceededError with retry_after
+        with pytest.raises(RateLimitExceededError) as exc_info:
+            rate_limiter.check_rate_limit(key=test_key, limit=limit, window_seconds=60)
 
-    assert exc_info.value.status_code == 429
-    assert exc_info.value.code == "RATE_LIMIT_EXCEEDED"
-    assert exc_info.value.retry_after > 0
-
-    rate_limiter.reset()
+        assert exc_info.value.status_code == 429
+        assert exc_info.value.code == "RATE_LIMIT_EXCEEDED"
+        assert exc_info.value.retry_after > 0
+    finally:
+        settings.RATE_LIMIT_ENABLED = orig_enabled
+        rate_limiter.reset()
 
 
 def test_rate_limiting_enforced_on_chat_endpoint(client: TestClient):
     """Verifies that exceeding the rate limit on /conversations/{id}/messages returns HTTP 429 with Retry-After."""
+    orig_enabled = settings.RATE_LIMIT_ENABLED
+    settings.RATE_LIMIT_ENABLED = True
     rate_limiter.reset()
     client.cookies.clear()
-
-    # Create conversation
-    conv_resp = client.post(
-        "/conversations",
-        json={"title": "Rate Limit Test"},
-        headers={"X-Dev-Role": "student", "X-Dev-Email": "ratelimit_user@university.edu"},
-    )
-    assert conv_resp.status_code == 201
-    conv_id = conv_resp.json()["id"]
-
-    user_headers = {"X-Dev-Role": "student", "X-Dev-Email": "ratelimit_user@university.edu"}
-
-    # Simulate rapid queries exceeding the limit
-    original_rpm = settings.RATE_LIMIT_LLM_RPM
     try:
-        # Lower limit temporarily to 2 queries for testing
-        settings.RATE_LIMIT_LLM_RPM = 2
+        # Create conversation
+        conv_resp = client.post(
+            "/conversations",
+            json={"title": "Rate Limit Test"},
+            headers={"X-Dev-Role": "student", "X-Dev-Email": "ratelimit_user@university.edu"},
+        )
+        assert conv_resp.status_code == 201
+        conv_id = conv_resp.json()["id"]
 
-        # 1st query succeeds
-        r1 = client.post(f"/conversations/{conv_id}/messages", json={"content": "Query 1"}, headers=user_headers)
-        assert r1.status_code == 201
+        user_headers = {"X-Dev-Role": "student", "X-Dev-Email": "ratelimit_user@university.edu"}
 
-        # 2nd query succeeds
-        r2 = client.post(f"/conversations/{conv_id}/messages", json={"content": "Query 2"}, headers=user_headers)
-        assert r2.status_code == 201
+        # Simulate rapid queries exceeding the limit
+        original_rpm = settings.RATE_LIMIT_LLM_RPM
+        try:
+            # Lower limit temporarily to 2 queries for testing
+            settings.RATE_LIMIT_LLM_RPM = 2
 
-        # 3rd query exceeds limit -> HTTP 429
-        r3 = client.post(f"/conversations/{conv_id}/messages", json={"content": "Query 3"}, headers=user_headers)
-        assert r3.status_code == 429
-        assert "Retry-After" in r3.headers
-        err_data = r3.json()
-        assert err_data["error"]["code"] == "RATE_LIMIT_EXCEEDED"
+            # 1st query succeeds
+            r1 = client.post(f"/conversations/{conv_id}/messages", json={"content": "Query 1"}, headers=user_headers)
+            assert r1.status_code == 201
+
+            # 2nd query succeeds
+            r2 = client.post(f"/conversations/{conv_id}/messages", json={"content": "Query 2"}, headers=user_headers)
+            assert r2.status_code == 201
+
+            # 3rd query exceeds limit -> HTTP 429
+            r3 = client.post(f"/conversations/{conv_id}/messages", json={"content": "Query 3"}, headers=user_headers)
+            assert r3.status_code == 429
+            assert "Retry-After" in r3.headers
+            err_data = r3.json()
+            assert err_data["error"]["code"] == "RATE_LIMIT_EXCEEDED"
+        finally:
+            settings.RATE_LIMIT_LLM_RPM = original_rpm
     finally:
-        settings.RATE_LIMIT_LLM_RPM = original_rpm
+        settings.RATE_LIMIT_ENABLED = orig_enabled
         rate_limiter.reset()
 
 
