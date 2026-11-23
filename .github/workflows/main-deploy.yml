@@ -24,7 +24,7 @@ jobs:
         ports:
           - 5432:5432
         options: >-
-          --health-cmd pg_isready
+          --health-cmd "pg_isready -U postgres"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
@@ -61,7 +61,7 @@ jobs:
 
       - name: Start MinIO & Qdrant Test Services
         run: |
-          docker run -d --name minio -p 9000:9000 -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin minio/minio:latest server /data
+          docker run -d --name minio -p 9000:9000 -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin cgr.dev/chainguard/minio:latest server /data
           docker run -d --name qdrant -p 6333:6333 qdrant/qdrant:latest
           for i in {1..30}; do
             if curl -s http://localhost:9000/minio/health/live > /dev/null && curl -s http://localhost:6333/healthz > /dev/null; then
