@@ -189,6 +189,14 @@ class Settings(BaseSettings):
         description="Standard fallback response when retrieval confidence is insufficient.",
     )
 
+    # Advanced RAG Parameters (Prompt 26)
+    RAG_ENABLE_HYBRID_SEARCH: bool = Field(default=True, description="Enable hybrid dense vector + lexical scoring.")
+    RAG_ENABLE_RERANKING: bool = Field(default=False, description="Enable candidate re-ranking (disabled by default to preserve RAM/CPU).")
+    RAG_RERANK_CANDIDATES_K: int = Field(default=20, description="Initial candidate pool size for re-ranking.")
+    RAG_ENABLE_GROUNDEDNESS_CHECK: bool = Field(default=True, description="Enable groundedness verification on generated answers.")
+    RAG_GROUNDEDNESS_THRESHOLD: float = Field(default=0.60, description="Minimum factual overlap score to accept answer as grounded.")
+    RAG_MAX_RAW_CONVERSATION_TURNS: int = Field(default=4, description="Maximum recent raw conversation turns to retain before summarizing.")
+
     @property
     def is_cookie_secure(self) -> bool:
         """Determines whether cookies must require HTTPS transmission."""

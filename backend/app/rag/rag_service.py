@@ -16,6 +16,8 @@ from backend.app.rag.retriever import vector_retriever, RetrievalResult
 from backend.app.rag.prompt import build_rag_prompt
 from backend.app.rag.llm import llm_client
 from backend.app.rag.citation import citation_resolver, Citation
+from backend.app.rag.groundedness import groundedness_checker
+from backend.app.rag.conversation_summarizer import conversation_summarizer
 
 settings = get_settings()
 
@@ -39,6 +41,12 @@ class RAGResponse(BaseModel):
         ..., description="Cosine similarity score of the most relevant chunk."
     )
     model_used: str = Field(..., description="LLM model identifier used for generation.")
+    groundedness_score: Optional[float] = Field(
+        default=None, description="Groundedness verification score (0.0 to 1.0)."
+    )
+    is_grounded: Optional[bool] = Field(
+        default=None, description="True if answer facts were verified against source chunks."
+    )
 
 
 class RAGService:
@@ -109,11 +117,18 @@ class RAGService:
                 model_used=self.llm.model,
             )
 
-        # Step 4: Construct grounded prompt with XML boundaries
+        # Step 4: Construct grounded prompt with XML boundaries and history summarization (Prompt 26)
+        conversation_summary = None
+        recent_turns = conversation_history
+        if conversation_history and len(conversation_history) > settings.RAG_MAX_RAW_CONVERSATION_TURNS:
+            older_turns, recent_turns = conversation_summarizer.partition_history(conversation_history)
+            conversation_summary = conversation_summarizer.summarize_turns(older_turns)
+
         system_prompt, user_prompt = build_rag_prompt(
             question=question,
             chunks=retrieval.chunks,
-            conversation_history=conversation_history,
+            conversation_history=recent_turns,
+            conversation_summary=conversation_summary,
         )
 
         # Step 5: Send prompt to Groq API with low temperature
@@ -137,7 +152,20 @@ class RAGService:
         if not citations and retrieval.chunks:
             citations = self.citation_resolver.resolve_from_search_results(retrieval.chunks)
 
-        # Step 7: Return response with citations
+        # Step 7: Groundedness verification check (Prompt 26)
+        groundedness_score = 1.0
+        is_grounded = True
+        if settings.RAG_ENABLE_GROUNDEDNESS_CHECK:
+            report = groundedness_checker.evaluate(
+                answer=answer,
+                retrieved_chunks=retrieval.chunks,
+                threshold=settings.RAG_GROUNDEDNESS_THRESHOLD,
+            )
+            groundedness_score = report.score
+            is_grounded = report.is_grounded
+            answer = report.verified_answer
+
+        # Step 8: Return response with citations
         return RAGResponse(
             question=question,
             answer=answer,
@@ -146,6 +174,8 @@ class RAGService:
             is_sufficient=True,
             confidence_score=retrieval.top_score,
             model_used=self.llm.model,
+            groundedness_score=groundedness_score,
+            is_grounded=is_grounded,
         )
 
     async def answer_question_stream(
@@ -208,11 +238,18 @@ class RAGService:
             }
             return
 
-        # Step 4: Construct grounded prompt with XML boundaries
+        # Step 4: Construct grounded prompt with XML boundaries and history summarization (Prompt 26)
+        conversation_summary = None
+        recent_turns = conversation_history
+        if conversation_history and len(conversation_history) > settings.RAG_MAX_RAW_CONVERSATION_TURNS:
+            older_turns, recent_turns = conversation_summarizer.partition_history(conversation_history)
+            conversation_summary = conversation_summarizer.summarize_turns(older_turns)
+
         system_prompt, user_prompt = build_rag_prompt(
             question=question,
             chunks=retrieval.chunks,
-            conversation_history=conversation_history,
+            conversation_history=recent_turns,
+            conversation_summary=conversation_summary,
         )
 
         # Step 5: Stream prompt completion tokens from Groq API
@@ -241,7 +278,19 @@ class RAGService:
         if not citations and retrieval.chunks:
             citations = self.citation_resolver.resolve_from_search_results(retrieval.chunks)
 
-        # Step 7: Emit completion event with full buffered answer and citations
+        # Step 7: Groundedness verification check
+        groundedness_score = 1.0
+        is_grounded = True
+        if settings.RAG_ENABLE_GROUNDEDNESS_CHECK:
+            report = groundedness_checker.evaluate(
+                answer=full_answer,
+                retrieved_chunks=retrieval.chunks,
+                threshold=settings.RAG_GROUNDEDNESS_THRESHOLD,
+            )
+            groundedness_score = report.score
+            is_grounded = report.is_grounded
+
+        # Step 8: Emit completion event with full buffered answer and citations
         yield {
             "type": "done",
             "answer": full_answer,
@@ -250,6 +299,8 @@ class RAGService:
             "confidence_score": retrieval.top_score,
             "retrieved_chunks": retrieval.chunks,
             "model_used": self.llm.model,
+            "groundedness_score": groundedness_score,
+            "is_grounded": is_grounded,
         }
 
 
