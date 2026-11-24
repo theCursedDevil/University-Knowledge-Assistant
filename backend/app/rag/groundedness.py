@@ -46,18 +46,47 @@ class GroundednessChecker:
         retrieved_chunks: List[SearchResult],
         threshold: float = 0.50,
     ) -> GroundednessReport:
-        """Evaluates whether the generated answer is supported by the context.
+        """Conservatively checks exact terms and numeric facts against retrieved text.
 
-        Args:
-            answer: Generated LLM response text.
-            retrieved_chunks: List of context chunks retrieved for the query.
-            threshold: Minimum acceptable groundedness ratio (default: 0.50).
-
-        Returns:
-            GroundednessReport containing verification status and safe answer.
+        This is a deterministic heuristic, not a semantic entailment model. Exact numeric
+        mismatches are rejected even when the remaining vocabulary overlap is high.
         """
-        # 1. Honest fallback / insufficient context responses are naturally grounded
-        if not retrieved_chunks or settings.RAG_INSUFFICIENT_CONTEXT_MESSAGE in answer or "couldn't find" in answer.lower():
+        normalized_answer = answer.strip()
+        fallback = settings.RAG_INSUFFICIENT_CONTEXT_MESSAGE.strip()
+        if normalized_answer == fallback:
+            return GroundednessReport(
+                is_grounded=True,
+                score=1.0,
+                threshold=threshold,
+                verified_answer=answer,
+                unsupported_claims=[],
+            )
+        if not retrieved_chunks:
+            return GroundednessReport(
+                is_grounded=False,
+                score=0.0,
+                threshold=threshold,
+                verified_answer=(
+                    "I could not verify this response against available university documents. "
+                    "Please consult the source documents directly."
+                ),
+                unsupported_claims=["No retrieved source context"],
+            )
+
+        context = " ".join(chunk.chunk_text.lower() for chunk in retrieved_chunks)
+        cleaned_answer = re.sub(r"\[Source\s+\d+\]", " ", answer, flags=re.IGNORECASE)
+
+        def words(value: str) -> Set[str]:
+            return {
+                token.lower()
+                for token in re.findall(r"[a-zA-Z][a-zA-Z0-9_-]*|\d+(?:\.\d+)?", value)
+                if token.lower() not in _COMMON_WORDS
+                and (len(token) > 2 or any(char.isdigit() for char in token))
+            }
+
+        answer_tokens = words(cleaned_answer)
+        context_tokens = words(context)
+        if not answer_tokens:
             return GroundednessReport(
                 is_grounded=True,
                 score=1.0,
@@ -66,46 +95,52 @@ class GroundednessChecker:
                 unsupported_claims=[],
             )
 
-        # 2. Build full context corpus
-        context_corpus = " ".join(chunk.chunk_text.lower() for chunk in retrieved_chunks)
+        unsupported_tokens = sorted(answer_tokens - context_tokens)
+        grounded_ratio = round((len(answer_tokens) - len(unsupported_tokens)) / len(answer_tokens), 4)
 
-        # 3. Clean out citation markers like [Source 1] and extract factual tokens: Numbers, percentages, acronyms, and content words
-        # E.g. "75%", "6.0", "14", "500", "21:30", "CGPA", "CTC", "LPA"
-        cleaned_answer = re.sub(r"\[Source \d+\]", " ", answer)
-        answer_tokens = re.findall(r"\b[a-zA-Z0-9_%.:-]+\b", cleaned_answer)
-        factual_tokens = [
-            t for t in answer_tokens
-            if t.lower() not in _COMMON_WORDS and (len(t) > 2 or any(c.isdigit() for c in t))
-        ]
+        # Keep numeric value + unit/currency together. A mention of 5% must not be
+        # supported by 75%, and Rs 1,750 must not be supported by Rs 175,000.
+        numeric_pattern = re.compile(
+            r"(?<![\w])(?P<currency>rs\.?|inr|₹)?\s*"
+            r"(?P<number>\d[\d,]*(?:\.\d+)?)\s*"
+            r"(?P<unit>%|percent|lpa|lakhs?|crore|cr|years?|months?|days?)?",
+            re.IGNORECASE,
+        )
 
-        if not factual_tokens:
-            return GroundednessReport(
-                is_grounded=True,
-                score=1.0,
-                threshold=threshold,
-                verified_answer=answer,
-                unsupported_claims=[],
-            )
+        def numeric_facts(value: str) -> Set[tuple[str, str, str]]:
+            facts: Set[tuple[str, str, str]] = set()
+            for match in numeric_pattern.finditer(value):
+                raw_number = match.group("number").replace(",", "")
+                try:
+                    number = str(float(raw_number)).rstrip("0").rstrip(".")
+                except ValueError:
+                    continue
+                currency = (match.group("currency") or "").lower().replace(".", "")
+                if currency in ("rs", "inr", "₹"):
+                    currency = "inr"
+                unit = (match.group("unit") or "").lower()
+                if unit == "percent":
+                    unit = "%"
+                facts.add((currency, number, unit))
+            return facts
 
-        supported_tokens = []
-        unsupported_tokens = []
+        context_numbers = numeric_facts(context)
+        answer_numbers = numeric_facts(cleaned_answer)
+        unsupported_numbers = sorted(answer_numbers - context_numbers)
+        is_grounded = grounded_ratio >= threshold and not unsupported_numbers
 
-        for token in factual_tokens:
-            token_clean = token.lower().strip(".,;:()")
-            if token_clean in context_corpus:
-                supported_tokens.append(token)
-            else:
-                unsupported_tokens.append(token)
-
-        grounded_ratio = round(len(supported_tokens) / len(factual_tokens), 4)
-        is_grounded = grounded_ratio >= threshold
+        unsupported_claims = unsupported_tokens[:5]
+        unsupported_claims.extend(
+            f"unsupported numeric fact: {' '.join(part for part in fact if part)}"
+            for fact in unsupported_numbers[:5]
+        )
 
         logger.info(
-            "Groundedness check: ratio=%.4f (threshold=%.2f, supported=%d, unsupported=%d, grounded=%s)",
+            "Groundedness check: ratio=%.4f (threshold=%.2f, unsupported_terms=%d, unsupported_numbers=%d, grounded=%s)",
             grounded_ratio,
             threshold,
-            len(supported_tokens),
             len(unsupported_tokens),
+            len(unsupported_numbers),
             is_grounded,
         )
 
@@ -113,18 +148,19 @@ class GroundednessChecker:
             final_answer = answer
         else:
             final_answer = (
-                "I could not fully verify that all statements in this response are supported by official "
-                "university documents. Please consult the cited source documents directly.\n\n"
-                "[Unverified statements omitted for academic accuracy]."
+                "I could not fully verify that this response is supported by the retrieved university documents. "
+                "Please consult the cited source documents directly.\n\n"
+                "[Unverified response omitted for academic accuracy]."
             )
 
         return GroundednessReport(
             is_grounded=is_grounded,
-            score=grounded_ratio,
+            score=grounded_ratio if not unsupported_numbers else min(grounded_ratio, 0.0),
             threshold=threshold,
             verified_answer=final_answer,
-            unsupported_claims=unsupported_tokens[:5],
+            unsupported_claims=unsupported_claims,
         )
+
 
 
 groundedness_checker = GroundednessChecker()

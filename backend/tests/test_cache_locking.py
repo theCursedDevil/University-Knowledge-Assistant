@@ -109,13 +109,13 @@ def test_cache_prefix_invalidation():
 def test_documents_endpoint_cache_hit_and_miss(client: TestClient, admin_token_headers: dict):
     """Verifies read-through caching and X-Cache header behavior on GET /documents."""
     # First request: Cache MISS (queries database and populates Redis)
-    res1 = client.get("/documents", headers=admin_token_headers)
+    res1 = client.get("/api/v1/documents", headers=admin_token_headers)
     assert res1.status_code == 200
     assert res1.headers.get("X-Cache") == "MISS"
     data1 = res1.json()
 
     # Second request: Cache HIT (served from Redis)
-    res2 = client.get("/documents", headers=admin_token_headers)
+    res2 = client.get("/api/v1/documents", headers=admin_token_headers)
     assert res2.status_code == 200
     assert res2.headers.get("X-Cache") == "HIT"
     data2 = res2.json()
@@ -125,11 +125,11 @@ def test_documents_endpoint_cache_hit_and_miss(client: TestClient, admin_token_h
 
 def test_admin_stats_cache_hit_and_miss(client: TestClient, admin_token_headers: dict):
     """Verifies caching and X-Cache header on GET /admin/stats."""
-    res1 = client.get("/admin/stats", headers=admin_token_headers)
+    res1 = client.get("/api/v1/admin/stats", headers=admin_token_headers)
     assert res1.status_code == 200
     assert res1.headers.get("X-Cache") == "MISS"
 
-    res2 = client.get("/admin/stats", headers=admin_token_headers)
+    res2 = client.get("/api/v1/admin/stats", headers=admin_token_headers)
     assert res2.status_code == 200
     assert res2.headers.get("X-Cache") == "HIT"
     assert res1.json() == res2.json()
@@ -138,16 +138,16 @@ def test_admin_stats_cache_hit_and_miss(client: TestClient, admin_token_headers:
 def test_cache_invalidation_after_document_upload(client: TestClient, admin_token_headers: dict):
     """Verifies that uploading a document purges the cached document list and admin stats."""
     # 1. Warm cache
-    res_warm = client.get("/documents", headers=admin_token_headers)
+    res_warm = client.get("/api/v1/documents", headers=admin_token_headers)
     assert res_warm.status_code == 200
-    assert client.get("/documents", headers=admin_token_headers).headers.get("X-Cache") == "HIT"
-    assert client.get("/admin/stats", headers=admin_token_headers).headers.get("X-Cache") == "MISS"
-    assert client.get("/admin/stats", headers=admin_token_headers).headers.get("X-Cache") == "HIT"
+    assert client.get("/api/v1/documents", headers=admin_token_headers).headers.get("X-Cache") == "HIT"
+    assert client.get("/api/v1/admin/stats", headers=admin_token_headers).headers.get("X-Cache") == "MISS"
+    assert client.get("/api/v1/admin/stats", headers=admin_token_headers).headers.get("X-Cache") == "HIT"
 
     # 2. Upload document
     pdf_content = b"%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF"
     upload_res = client.post(
-        "/documents",
+        "/api/v1/documents",
         data={"title": "Cache Invalidation Test Doc", "category": "Academic", "role_restriction": "all"},
         files={"file": ("cache_test.pdf", io.BytesIO(pdf_content), "application/pdf")},
         params={"auto_process": False},
@@ -157,19 +157,19 @@ def test_cache_invalidation_after_document_upload(client: TestClient, admin_toke
     doc_id = upload_res.json()["id"]
 
     # 3. Verify that GET /documents is now a Cache MISS and reflects new document
-    res_after = client.get("/documents", headers=admin_token_headers)
+    res_after = client.get("/api/v1/documents", headers=admin_token_headers)
     assert res_after.status_code == 200
     assert res_after.headers.get("X-Cache") == "MISS"
     doc_ids = [d["id"] for d in res_after.json()]
     assert doc_id in doc_ids
 
     # 4. Verify admin stats cache is also invalidated
-    res_stats_after = client.get("/admin/stats", headers=admin_token_headers)
+    res_stats_after = client.get("/api/v1/admin/stats", headers=admin_token_headers)
     assert res_stats_after.status_code == 200
     assert res_stats_after.headers.get("X-Cache") == "MISS"
 
     # Clean up created document
-    client.delete(f"/documents/{doc_id}", headers=admin_token_headers)
+    client.delete(f"/api/v1/documents/{doc_id}", headers=admin_token_headers)
 
 
 def test_cache_invalidation_after_metadata_update(client: TestClient, admin_token_headers: dict):
@@ -177,7 +177,7 @@ def test_cache_invalidation_after_metadata_update(client: TestClient, admin_toke
     # 1. Upload initial document
     pdf_content = b"%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF"
     upload_res = client.post(
-        "/documents",
+        "/api/v1/documents",
         data={"title": "Pre-Update Title", "category": "Regulations", "role_restriction": "all"},
         files={"file": ("pre_update.pdf", io.BytesIO(pdf_content), "application/pdf")},
         params={"auto_process": False},
@@ -187,14 +187,14 @@ def test_cache_invalidation_after_metadata_update(client: TestClient, admin_toke
     doc_id = upload_res.json()["id"]
 
     # 2. Warm detail and list caches
-    client.get(f"/documents/{doc_id}", headers=admin_token_headers)
-    assert client.get(f"/documents/{doc_id}", headers=admin_token_headers).headers.get("X-Cache") == "HIT"
-    client.get("/documents", headers=admin_token_headers)
-    assert client.get("/documents", headers=admin_token_headers).headers.get("X-Cache") == "HIT"
+    client.get(f"/api/v1/documents/{doc_id}", headers=admin_token_headers)
+    assert client.get(f"/api/v1/documents/{doc_id}", headers=admin_token_headers).headers.get("X-Cache") == "HIT"
+    client.get("/api/v1/documents", headers=admin_token_headers)
+    assert client.get("/api/v1/documents", headers=admin_token_headers).headers.get("X-Cache") == "HIT"
 
     # 3. Patch metadata
     patch_res = client.patch(
-        f"/documents/{doc_id}",
+        f"/api/v1/documents/{doc_id}",
         json={"title": "Post-Update Title", "expected_version": 1},
         headers=admin_token_headers,
     )
@@ -202,15 +202,15 @@ def test_cache_invalidation_after_metadata_update(client: TestClient, admin_toke
     assert patch_res.json()["title"] == "Post-Update Title"
 
     # 4. Verify detail and list caches were invalidated
-    res_detail = client.get(f"/documents/{doc_id}", headers=admin_token_headers)
+    res_detail = client.get(f"/api/v1/documents/{doc_id}", headers=admin_token_headers)
     assert res_detail.headers.get("X-Cache") == "MISS"
     assert res_detail.json()["title"] == "Post-Update Title"
 
-    res_list = client.get("/documents", headers=admin_token_headers)
+    res_list = client.get("/api/v1/documents", headers=admin_token_headers)
     assert res_list.headers.get("X-Cache") == "MISS"
 
     # Clean up
-    client.delete(f"/documents/{doc_id}", headers=admin_token_headers)
+    client.delete(f"/api/v1/documents/{doc_id}", headers=admin_token_headers)
 
 
 # ==============================================================================
@@ -322,7 +322,7 @@ def test_concurrent_processing_lock_rejection(client: TestClient, admin_token_he
     """Verifies that triggering processing while a lock is held returns HTTP 409 Conflict."""
     pdf_content = b"%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF"
     upload_res = client.post(
-        "/documents",
+        "/api/v1/documents",
         data={"title": "Lock Contention Doc", "category": "Academic", "role_restriction": "all"},
         files={"file": ("lock_contention.pdf", io.BytesIO(pdf_content), "application/pdf")},
         params={"auto_process": False},
@@ -336,7 +336,7 @@ def test_concurrent_processing_lock_rejection(client: TestClient, admin_token_he
     with distributed_lock(lock_key, expire_seconds=15.0):
         # Admin attempts to trigger processing concurrently
         res = client.post(
-            f"/documents/{doc_id}/process",
+            f"/api/v1/documents/{doc_id}/process",
             headers=admin_token_headers,
         )
         assert res.status_code == 409
@@ -345,14 +345,14 @@ def test_concurrent_processing_lock_rejection(client: TestClient, admin_token_he
         assert f"'{lock_key}'" in err["message"] or f"'{doc_id}'" in err["message"]
 
     # Clean up
-    client.delete(f"/documents/{doc_id}", headers=admin_token_headers)
+    client.delete(f"/api/v1/documents/{doc_id}", headers=admin_token_headers)
 
 
 def test_document_deletion_blocked_by_active_lock(client: TestClient, admin_token_headers: dict):
     """Verifies that attempting to delete a document while its lock is held is rejected with 409."""
     pdf_content = b"%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF"
     upload_res = client.post(
-        "/documents",
+        "/api/v1/documents",
         data={"title": "Lock Deletion Doc", "category": "Academic", "role_restriction": "all"},
         files={"file": ("lock_delete.pdf", io.BytesIO(pdf_content), "application/pdf")},
         params={"auto_process": False},
@@ -365,7 +365,7 @@ def test_document_deletion_blocked_by_active_lock(client: TestClient, admin_toke
     with distributed_lock(lock_key, expire_seconds=15.0):
         # Admin attempts to delete while ingestion/processing is holding the lock
         res = client.delete(
-            f"/documents/{doc_id}",
+            f"/api/v1/documents/{doc_id}",
             headers=admin_token_headers,
         )
         assert res.status_code == 409
@@ -373,5 +373,5 @@ def test_document_deletion_blocked_by_active_lock(client: TestClient, admin_toke
         assert err["code"] == "LOCK_CONTENTION"
 
     # Clean up after lock is released
-    del_res = client.delete(f"/documents/{doc_id}", headers=admin_token_headers)
+    del_res = client.delete(f"/api/v1/documents/{doc_id}", headers=admin_token_headers)
     assert del_res.status_code == 200

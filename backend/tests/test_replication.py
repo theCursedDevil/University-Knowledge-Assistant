@@ -262,7 +262,7 @@ async def test_check_db_connection_reports_all_nodes():
 
 def test_health_db_api_endpoint(client: TestClient):
     """Verifies that GET /health/db returns 200 OK and multi-replica status JSON."""
-    response = client.get("/health/db")
+    response = client.get("/api/v1/health/db", headers={"X-Dev-Role": "admin"})
     assert response.status_code == 200
 
     data = response.json()

@@ -4,7 +4,6 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import {
   UserProfile,
   Role,
-  MOCK_USERS,
   UserPreferences,
   DEFAULT_PREFERENCES,
 } from "@/lib/mockData";
@@ -37,10 +36,17 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [currentUser, setCurrentUser] = useState<UserProfile>(MOCK_USERS[0]);
+  const [currentUser, setCurrentUser] = useState<UserProfile>({
+    id: "",
+    name: "Guest",
+    email: "",
+    role: "student",
+    createdAt: "",
+    status: "active",
+  });
   const [role, setRole] = useState<Role>("student");
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
-  const [allUsers, setAllUsers] = useState<UserProfile[]>(MOCK_USERS);
+  const [allUsers, setAllUsers] = useState<UserProfile[]>([]);
   const [preferences, setPreferences] = useState<UserPreferences>(DEFAULT_PREFERENCES);
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
@@ -55,23 +61,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [preferences.theme]);
 
   // Load active user from backend GET /me on startup
-  const loadUserFromBackend = useCallback(async (targetRole?: Role, targetEmail?: string) => {
-    const storedRole = typeof window !== "undefined" ? localStorage.getItem("uka_user_role") : null;
-    const storedToken = typeof window !== "undefined" ? localStorage.getItem("uka_access_token") : null;
-
-    // If no active session exists and no role explicitly requested, remain unauthenticated
-    if (!storedRole && !storedToken && !targetRole) {
-      setIsAuthenticated(false);
-      setIsLoading(false);
-      return;
-    }
-
+  const loadUserFromBackend = useCallback(async (_targetRole?: Role, _targetEmail?: string) => {
     setIsLoading(true);
     try {
-      const activeRole = targetRole || (storedRole as Role) || "student";
-      const activeEmail = targetEmail || localStorage.getItem("uka_user_email") || undefined;
-      const apiUser: ApiUser = await fetchCurrentUser(activeRole, activeEmail);
-
+      const apiUser: ApiUser = await fetchCurrentUser();
       const profile: UserProfile = {
         id: apiUser.id,
         name: apiUser.name,
@@ -83,17 +76,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setCurrentUser(profile);
       setRole(profile.role);
       setIsAuthenticated(true);
-      localStorage.setItem("uka_user_role", profile.role);
-      localStorage.setItem("uka_user_email", profile.email);
     } catch {
-      if (storedRole || targetRole) {
-        const fallbackRole = targetRole || (storedRole as Role) || "student";
-        const fallbackUser = MOCK_USERS.find((u) => u.role === fallbackRole) || MOCK_USERS[0];
-        setCurrentUser(fallbackUser);
-        setRole(fallbackUser.role);
-        setIsAuthenticated(true);
-      } else {
-        setIsAuthenticated(false);
+      setIsAuthenticated(false);
+      setRole("student");
+      setCurrentUser({
+        id: "",
+        name: "Guest",
+        email: "",
+        role: "student",
+        createdAt: "",
+        status: "active",
+      });
+      setAllUsers([]);
+      if (typeof window !== "undefined") {
+        // Remove legacy demo credentials if a previous frontend build stored them.
+        localStorage.removeItem("uka_access_token");
+        localStorage.removeItem("uka_user_role");
+        localStorage.removeItem("uka_user_email");
       }
     } finally {
       setIsLoading(false);
@@ -131,20 +130,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [role, refreshUsersList]);
 
-  // 1-Click Role Switcher (Student / Faculty / Admin)
-  const switchRole = async (newRole: Role) => {
-    setRole(newRole);
-    localStorage.setItem("uka_user_role", newRole);
-    localStorage.removeItem("uka_user_email"); // reset custom email on role persona switch
-    await loadUserFromBackend(newRole);
-  };
-
-  // Login entry point connected to POST /auth/login
+  // This endpoint is unavailable unless both frontend and backend dev flags are enabled.
   const login = async (email: string, overrideRole?: Role, name?: string) => {
+    if (process.env.NEXT_PUBLIC_DEV_LOGIN !== "true") {
+      throw new Error("Password login is disabled. Use Google or University SSO.");
+    }
     setIsLoading(true);
     try {
-      const selectedRole = overrideRole || "student";
-      const res = await loginUser(email, selectedRole, name);
+      const res = await loginUser(email, overrideRole || "student", name);
       const profile: UserProfile = {
         id: res.user.id,
         name: res.user.name,
@@ -156,34 +149,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setCurrentUser(profile);
       setRole(profile.role);
       setIsAuthenticated(true);
-      localStorage.setItem("uka_user_role", profile.role);
-      localStorage.setItem("uka_user_email", profile.email);
-      if (res.access_token) {
-        localStorage.setItem("uka_access_token", res.access_token);
-      }
-    } catch {
-      // Fallback local provision
-      const newUser: UserProfile = {
-        id: `usr-${Date.now()}`,
-        name: name || email.split("@")[0].replace(".", " ").toUpperCase(),
-        email: email,
-        role: overrideRole || "student",
-        createdAt: new Date().toISOString(),
-        status: "active",
-      };
-      setCurrentUser(newUser);
-      setRole(newUser.role);
-      setIsAuthenticated(true);
+    } catch (error) {
+      setIsAuthenticated(false);
+      throw error;
     } finally {
       setIsLoading(false);
     }
   };
+
+  // Persona switching exists only for an explicitly enabled local development demo.
+  const switchRole = async (newRole: Role) => {
+    if (process.env.NEXT_PUBLIC_DEV_LOGIN !== "true") return;
+    await login(currentUser.email || `${newRole}@university.edu`, newRole);
+  };
+
+
 
   const logout = async () => {
     setIsAuthenticated(false);
     localStorage.removeItem("uka_user_role");
     localStorage.removeItem("uka_user_email");
     localStorage.removeItem("uka_access_token");
+    setRole("student");
+    setCurrentUser({ id: "", name: "Guest", email: "", role: "student", createdAt: "", status: "active" });
     try {
       await logoutBackend();
     } catch {
@@ -203,6 +191,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return {
         success: false,
         error: "Safety policy: You cannot remove your own administrative privileges while logged in.",
+      };
+    }
+
+    const targetUser = allUsers.find((u) => u.id === userId);
+    if (targetUser?.role === "admin" && targetUser.id !== currentUser.id && newRole !== "admin") {
+      return {
+        success: false,
+        error: "Safety policy: Administrators cannot demote or modify peer administrators.",
       };
     }
 
@@ -226,6 +222,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return {
         success: false,
         error: "Safety policy: You cannot disable your own active administrator account.",
+      };
+    }
+
+    const targetUser = allUsers.find((u) => u.id === userId);
+    if (targetUser?.role === "admin") {
+      return {
+        success: false,
+        error: "Safety policy: Administrators cannot disable peer administrator accounts.",
       };
     }
 

@@ -74,8 +74,7 @@ export default function DocumentsPage() {
   const filteredDocs = documents.filter((doc) => {
     const matchesSearch =
       doc.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      doc.category.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      doc.storage_path.toLowerCase().includes(searchQuery.toLowerCase());
+      doc.category.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesCategory = selectedCategory === "All" || doc.category.toLowerCase() === selectedCategory.toLowerCase();
     const matchesStatus =
       selectedStatus === "All" ||
@@ -305,7 +304,7 @@ export default function DocumentsPage() {
                         {doc.title}
                       </h3>
                       <p className="text-[11px] text-zinc-400 font-mono mt-1 truncate">
-                        {doc.storage_path.split("/").pop()}
+                        {doc.title}
                       </p>
                     </div>
 

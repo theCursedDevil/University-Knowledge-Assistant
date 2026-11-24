@@ -33,7 +33,7 @@ from backend.app.rag.rag_service import RAGResponse
 def test_create_conversation_default_title(client: TestClient):
     """Requirement 1: Create a new conversation with default title."""
     headers = {"X-Dev-Email": "student_test_1@university.edu"}
-    response = client.post("/conversations", json={}, headers=headers)
+    response = client.post("/api/v1/conversations", json={}, headers=headers)
     assert response.status_code == 201, response.text
     data = response.json()
 
@@ -47,7 +47,7 @@ def test_create_conversation_custom_title(client: TestClient):
     """Requirement 1: Create a new conversation with specified title."""
     headers = {"X-Dev-Email": "student_test_1@university.edu"}
     payload = {"title": "Semester 4 Grading Inquiry"}
-    response = client.post("/conversations", json=payload, headers=headers)
+    response = client.post("/api/v1/conversations", json=payload, headers=headers)
     assert response.status_code == 201, response.text
     data = response.json()
 
@@ -60,17 +60,17 @@ def test_list_conversations_user_isolation(client: TestClient):
     user_b_headers = {"X-Dev-Email": "user_b@university.edu"}
 
     # User A creates 2 conversations
-    res_a1 = client.post("/conversations", json={"title": "User A Conv 1"}, headers=user_a_headers)
-    res_a2 = client.post("/conversations", json={"title": "User A Conv 2"}, headers=user_a_headers)
+    res_a1 = client.post("/api/v1/conversations", json={"title": "User A Conv 1"}, headers=user_a_headers)
+    res_a2 = client.post("/api/v1/conversations", json={"title": "User A Conv 2"}, headers=user_a_headers)
     assert res_a1.status_code == 201
     assert res_a2.status_code == 201
 
     # User B creates 1 conversation
-    res_b1 = client.post("/conversations", json={"title": "User B Conv 1"}, headers=user_b_headers)
+    res_b1 = client.post("/api/v1/conversations", json={"title": "User B Conv 1"}, headers=user_b_headers)
     assert res_b1.status_code == 201
 
     # User A lists conversations
-    list_a = client.get("/conversations", headers=user_a_headers)
+    list_a = client.get("/api/v1/conversations", headers=user_a_headers)
     assert list_a.status_code == 200
     a_titles = [c["title"] for c in list_a.json()]
     assert "User A Conv 1" in a_titles
@@ -78,7 +78,7 @@ def test_list_conversations_user_isolation(client: TestClient):
     assert "User B Conv 1" not in a_titles
 
     # User B lists conversations
-    list_b = client.get("/conversations", headers=user_b_headers)
+    list_b = client.get("/api/v1/conversations", headers=user_b_headers)
     assert list_b.status_code == 200
     b_titles = [c["title"] for c in list_b.json()]
     assert "User B Conv 1" in b_titles
@@ -91,12 +91,12 @@ def test_get_conversation_owner_and_forbidden(client: TestClient):
     intruder_headers = {"X-Dev-Email": "intruder_student@university.edu"}
 
     # Owner creates conversation
-    create_res = client.post("/conversations", json={"title": "Private Academic Advice"}, headers=owner_headers)
+    create_res = client.post("/api/v1/conversations", json={"title": "Private Academic Advice"}, headers=owner_headers)
     assert create_res.status_code == 201
     conv_id = create_res.json()["id"]
 
     # Owner can retrieve
-    get_res = client.get(f"/conversations/{conv_id}", headers=owner_headers)
+    get_res = client.get(f"/api/v1/conversations/{conv_id}", headers=owner_headers)
     assert get_res.status_code == 200
     detail = get_res.json()
     assert detail["id"] == conv_id
@@ -104,7 +104,7 @@ def test_get_conversation_owner_and_forbidden(client: TestClient):
     assert isinstance(detail["messages"], list)
 
     # Intruder receives 403 Forbidden
-    forbidden_res = client.get(f"/conversations/{conv_id}", headers=intruder_headers)
+    forbidden_res = client.get(f"/api/v1/conversations/{conv_id}", headers=intruder_headers)
     assert forbidden_res.status_code == 403
     error_body = forbidden_res.json()
     assert error_body["error"]["code"] == "FORBIDDEN"
@@ -115,7 +115,7 @@ def test_get_conversation_not_found(client: TestClient):
     """Verifies 404 on missing conversation ID."""
     headers = {"X-Dev-Email": "student@university.edu"}
     random_id = str(uuid.uuid4())
-    res = client.get(f"/conversations/{random_id}", headers=headers)
+    res = client.get(f"/api/v1/conversations/{random_id}", headers=headers)
     assert res.status_code == 404
     assert res.json()["error"]["code"] == "NOT_FOUND"
 
@@ -125,7 +125,7 @@ def test_post_message_and_save_turn(client: TestClient):
     headers = {"X-Dev-Email": "chat_student@university.edu"}
 
     # Create conversation with default title
-    conv_res = client.post("/conversations", json={}, headers=headers)
+    conv_res = client.post("/api/v1/conversations", json={}, headers=headers)
     assert conv_res.status_code == 201
     conv_id = conv_res.json()["id"]
     initial_updated_at = conv_res.json()["updated_at"]
@@ -148,7 +148,7 @@ def test_post_message_and_save_turn(client: TestClient):
         mock_answer.return_value = mock_rag_result
 
         turn_res = client.post(
-            f"/conversations/{conv_id}/messages",
+            f"/api/v1/conversations/{conv_id}/messages",
             json={"content": "What is the minimum attendance requirement?"},
             headers=headers,
         )
@@ -166,7 +166,7 @@ def test_post_message_and_save_turn(client: TestClient):
         assert turn_data["citations"][0]["page"] == 14
 
     # Verify conversation title was automatically updated from the first user query
-    get_res = client.get(f"/conversations/{conv_id}", headers=headers)
+    get_res = client.get(f"/api/v1/conversations/{conv_id}", headers=headers)
     assert get_res.status_code == 200
     conv_detail = get_res.json()
     assert conv_detail["title"] == "What is the minimum attendance requirement?"
@@ -182,11 +182,11 @@ def test_post_message_forbidden_for_other_user(client: TestClient):
     owner_headers = {"X-Dev-Email": "owner_msg@university.edu"}
     intruder_headers = {"X-Dev-Email": "intruder_msg@university.edu"}
 
-    conv = client.post("/conversations", json={}, headers=owner_headers).json()
+    conv = client.post("/api/v1/conversations", json={}, headers=owner_headers).json()
     conv_id = conv["id"]
 
     res = client.post(
-        f"/conversations/{conv_id}/messages",
+        f"/api/v1/conversations/{conv_id}/messages",
         json={"content": "Can I hack into this thread?"},
         headers=intruder_headers,
     )
@@ -198,7 +198,7 @@ def test_conversational_history_lookback(client: TestClient):
     """Requirements 9 & 10: Passes the last 6 messages as conversational context to the RAG pipeline."""
     headers = {"X-Dev-Email": "multi_turn_user@university.edu"}
 
-    conv = client.post("/conversations", json={"title": "Multi Turn Thread"}, headers=headers).json()
+    conv = client.post("/api/v1/conversations", json={"title": "Multi Turn Thread"}, headers=headers).json()
     conv_id = conv["id"]
 
     captured_histories = []
@@ -219,7 +219,7 @@ def test_conversational_history_lookback(client: TestClient):
         # Send 4 user messages (creates 4 user + 4 assistant = 8 total messages)
         for i in range(1, 5):
             res = client.post(
-                f"/conversations/{conv_id}/messages",
+                f"/api/v1/conversations/{conv_id}/messages",
                 json={"content": f"Turn question {i}"},
                 headers=headers,
             )
@@ -245,7 +245,7 @@ async def test_conversation_persistence_in_db(client: TestClient, db_session):
     """Ensures conversation and message records persist cleanly in PostgreSQL tables."""
     headers = {"X-Dev-Email": "persistence_student@university.edu"}
 
-    conv_res = client.post("/conversations", json={"title": "Persistence Test"}, headers=headers)
+    conv_res = client.post("/api/v1/conversations", json={"title": "Persistence Test"}, headers=headers)
     assert conv_res.status_code == 201
     conv_id = uuid.UUID(conv_res.json()["id"])
 
@@ -269,7 +269,7 @@ def test_post_message_streaming_sse_success(client: TestClient):
     headers = {"X-Dev-Email": "stream_user@university.edu"}
 
     # 1. Create a conversation
-    conv_res = client.post("/conversations", json={"title": "Streaming Test"}, headers=headers)
+    conv_res = client.post("/api/v1/conversations", json={"title": "Streaming Test"}, headers=headers)
     assert conv_res.status_code == 201
     conv_id = conv_res.json()["id"]
 
@@ -291,7 +291,7 @@ def test_post_message_streaming_sse_success(client: TestClient):
 
     with patch("backend.app.api.conversations.rag_service.answer_question_stream", side_effect=mock_answer_question_stream):
         response = client.post(
-            f"/conversations/{conv_id}/messages?stream=true",
+            f"/api/v1/conversations/{conv_id}/messages?stream=true",
             json={"content": "What CGPA must students maintain?"},
             headers=headers,
         )
@@ -320,7 +320,7 @@ def test_post_message_streaming_sse_success(client: TestClient):
 
     # Verify database persistence:
     # Requirement 6 & 7: exactly ONE assistant message with the complete buffered text, NOT separate tokens
-    detail_res = client.get(f"/conversations/{conv_id}", headers=headers)
+    detail_res = client.get(f"/api/v1/conversations/{conv_id}", headers=headers)
     assert detail_res.status_code == 200
     detail = detail_res.json()
     assert len(detail["messages"]) == 2  # 1 user + 1 assistant
@@ -339,7 +339,7 @@ def test_post_message_streaming_insufficient_context_fallback(client: TestClient
     """Prompt 12 Req 3: Stream clear fallback response when retrieval confidence is insufficient."""
     headers = {"X-Dev-Email": "fallback_stream_user@university.edu"}
 
-    conv_res = client.post("/conversations", json={}, headers=headers)
+    conv_res = client.post("/api/v1/conversations", json={}, headers=headers)
     assert conv_res.status_code == 201
     conv_id = conv_res.json()["id"]
 
@@ -359,7 +359,7 @@ def test_post_message_streaming_insufficient_context_fallback(client: TestClient
 
     with patch("backend.app.api.conversations.rag_service.answer_question_stream", side_effect=mock_fallback_stream):
         response = client.post(
-            f"/conversations/{conv_id}/messages",
+            f"/api/v1/conversations/{conv_id}/messages",
             json={"content": "What is the secret recipe of the cafeteria pizza?", "stream": True},
             headers=headers,
         )
@@ -377,7 +377,7 @@ def test_post_message_streaming_insufficient_context_fallback(client: TestClient
         assert done_event["citations"] == []
 
     # Verify database persistence for fallback
-    detail = client.get(f"/conversations/{conv_id}", headers=headers).json()
+    detail = client.get(f"/api/v1/conversations/{conv_id}", headers=headers).json()
     assert len(detail["messages"]) == 2
     assert detail["messages"][1]["role"] == "assistant"
     assert detail["messages"][1]["content"] == fallback_msg
@@ -388,7 +388,7 @@ def test_post_message_streaming_interrupted_or_llm_failure(client: TestClient):
     """Prompt 12 Req 8: Handle interrupted streams and LLM failures without saving corrupt partial messages."""
     headers = {"X-Dev-Email": "error_stream_user@university.edu"}
 
-    conv_res = client.post("/conversations", json={"title": "Error Handling Thread"}, headers=headers)
+    conv_res = client.post("/api/v1/conversations", json={"title": "Error Handling Thread"}, headers=headers)
     assert conv_res.status_code == 201
     conv_id = conv_res.json()["id"]
 
@@ -398,7 +398,7 @@ def test_post_message_streaming_interrupted_or_llm_failure(client: TestClient):
 
     with patch("backend.app.api.conversations.rag_service.answer_question_stream", side_effect=mock_failing_stream):
         response = client.post(
-            f"/conversations/{conv_id}/messages?stream=true",
+            f"/api/v1/conversations/{conv_id}/messages?stream=true",
             json={"content": "Simulate external failure during stream"},
             headers=headers,
         )
@@ -414,7 +414,7 @@ def test_post_message_streaming_interrupted_or_llm_failure(client: TestClient):
         assert error_events[0]["done"] is True
 
     # Database must remain consistent: user message exists, but no broken assistant message was committed
-    detail = client.get(f"/conversations/{conv_id}", headers=headers).json()
+    detail = client.get(f"/api/v1/conversations/{conv_id}", headers=headers).json()
     assert len(detail["messages"]) == 1
     assert detail["messages"][0]["role"] == "user"
 

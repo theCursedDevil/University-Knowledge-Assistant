@@ -97,15 +97,17 @@ async def update_postgres_replication_lag() -> None:
             rows = await conn.execute(query)
             records = rows.fetchall()
 
-            if records:
-                for row in records:
-                    app_name = row.application_name or "unknown_replica"
-                    lag = float(row.lag_bytes)
-                    POSTGRES_REPLICATION_LAG_BYTES.labels(replica=app_name).set(lag)
-            else:
-                # Fallback zero when in single-node/CI test mode
-                POSTGRES_REPLICATION_LAG_BYTES.labels(replica="replica_1").set(0.0)
-                POSTGRES_REPLICATION_LAG_BYTES.labels(replica="replica_2").set(0.0)
+            observed = set()
+            for row in records:
+                app_name = row.application_name or "unknown_replica"
+                observed.add(app_name)
+                POSTGRES_REPLICATION_LAG_BYTES.labels(replica=app_name).set(float(row.lag_bytes))
+
+            # -1 is an explicit "not connected / no replication sample" sentinel.
+            # It avoids presenting a disconnected standby as perfectly caught up.
+            for replica_name in ("replica_1", "replica_2"):
+                if replica_name not in observed:
+                    POSTGRES_REPLICATION_LAG_BYTES.labels(replica=replica_name).set(-1.0)
     except Exception:
         # Avoid breaking metrics scrape if database is momentarily unreachable
         pass

@@ -19,59 +19,100 @@ spec:
         app: keycloak
         app.kubernetes.io/component: auth
     spec:
+      initContainers:
+      - name: wait-for-postgres
+        image: busybox:1.36
+        imagePullPolicy: IfNotPresent
+        command: ["sh", "-c", "until nc -z -w 2 postgres-primary 5432; do sleep 2; done"]
       containers:
-        - name: keycloak
-          image: quay.io/keycloak/keycloak:24.0.5
-          imagePullPolicy: IfNotPresent
-          args:
-            - start-dev
-            - --import-realm
-          env:
-            - name: KEYCLOAK_ADMIN
-              valueFrom:
-                secretKeyRef:
-                  name: uka-secrets
-                  key: KEYCLOAK_ADMIN
-            - name: KEYCLOAK_ADMIN_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: uka-secrets
-                  key: KEYCLOAK_ADMIN_PASSWORD
-          ports:
-            - containerPort: 8080
-              name: http
-          volumeMounts:
-            - name: realm-config
-              mountPath: /opt/keycloak/data/import/university-realm.json
-              subPath: university-realm.json
-          startupProbe:
-            tcpSocket:
-              port: 8080
-            initialDelaySeconds: 20
-            periodSeconds: 5
-            failureThreshold: 120
-            timeoutSeconds: 3
-          livenessProbe:
-            tcpSocket:
-              port: 8080
-            periodSeconds: 15
-            timeoutSeconds: 5
-          readinessProbe:
-            tcpSocket:
-              port: 8080
-            periodSeconds: 5
-            timeoutSeconds: 3
-          resources:
-            requests:
-              cpu: 300m
-              memory: 512Mi
-            limits:
-              cpu: 1500m
-              memory: 1536Mi
-      volumes:
+      - name: keycloak
+        image: quay.io/keycloak/keycloak:26.8.2
+        imagePullPolicy: IfNotPresent
+        args:
+        - start
+        - --import-realm
+        - --http-enabled=true
+        - --proxy-headers=xforwarded
+        - --hostname=https://uka.university.edu
+        - --hostname-strict=true
+        env:
+        - name: KC_BOOTSTRAP_ADMIN_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: uka-secrets
+              key: KEYCLOAK_ADMIN
+        - name: KC_BOOTSTRAP_ADMIN_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: uka-secrets
+              key: KEYCLOAK_ADMIN_PASSWORD
+        - name: KC_DB
+          value: postgres
+        - name: KC_DB_URL_HOST
+          value: postgres-primary
+        - name: KC_DB_URL_DATABASE
+          value: keycloak
+        - name: KC_DB_USERNAME
+          value: uka_keycloak
+        - name: KC_DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: uka-secrets
+              key: KEYCLOAK_DB_PASSWORD
+        - name: GOOGLE_CLIENT_ID
+          valueFrom:
+            secretKeyRef:
+              name: uka-secrets
+              key: GOOGLE_CLIENT_ID
+        - name: GOOGLE_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: uka-secrets
+              key: GOOGLE_CLIENT_SECRET
+        ports:
+        - containerPort: 8080
+          name: http
+        volumeMounts:
         - name: realm-config
-          configMap:
-            name: keycloak-realm-config
+          mountPath: /opt/keycloak/data/import/university-realm.json
+          subPath: university-realm.json
+        startupProbe:
+          tcpSocket:
+            port: 8080
+          initialDelaySeconds: 20
+          periodSeconds: 5
+          failureThreshold: 120
+          timeoutSeconds: 3
+        livenessProbe:
+          tcpSocket:
+            port: 8080
+          periodSeconds: 15
+          timeoutSeconds: 5
+        readinessProbe:
+          tcpSocket:
+            port: 8080
+          periodSeconds: 5
+          timeoutSeconds: 3
+        resources:
+          requests:
+            cpu: 300m
+            memory: 512Mi
+          limits:
+            cpu: 1500m
+            memory: 1536Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsNonRoot: true
+          runAsUser: 1000
+          seccompProfile:
+            type: RuntimeDefault
+          capabilities:
+            drop:
+            - ALL
+      volumes:
+      - name: realm-config
+        configMap:
+          name: keycloak-realm-config
 ---
 apiVersion: v1
 kind: Service
@@ -84,8 +125,8 @@ metadata:
 spec:
   type: ClusterIP
   ports:
-    - port: 8080
-      targetPort: 8080
-      name: http
+  - port: 8080
+    targetPort: 8080
+    name: http
   selector:
     app: keycloak

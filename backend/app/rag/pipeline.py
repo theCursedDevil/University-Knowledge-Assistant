@@ -10,6 +10,7 @@ processing -> ready (on complete success)
 processing -> failed (on any extraction, chunking, embedding, or indexing failure)
 """
 
+import asyncio
 import uuid
 from typing import Optional
 from pydantic import BaseModel, Field
@@ -17,6 +18,7 @@ from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.core.logging import logger
+from backend.app.core.config import get_settings
 from backend.app.core.errors import NotFoundError, ValidationError, AppException
 from backend.app.db.session import AsyncSessionLocal
 from backend.app.db.models import Document, DocumentChunkMeta, AuditLog
@@ -26,6 +28,9 @@ from backend.app.rag.chunker import chunk_document_pages
 from backend.app.rag.embeddings import embedding_client
 from backend.app.rag.vector_store import vector_store
 from backend.app.core.metrics import DOCUMENT_PROCESSING_TOTAL
+
+settings = get_settings()
+_ingestion_semaphore = asyncio.Semaphore(settings.RAG_MAX_CONCURRENT_INGESTIONS)
 
 
 class ProcessingResult(BaseModel):
@@ -56,14 +61,18 @@ async def process_document(
     """
     from backend.app.core.cache import async_distributed_lock, cache_client
 
-    async with async_distributed_lock(f"document:{document_id}", expire_seconds=60.0, timeout_seconds=0.0):
-        if session is not None:
-            res = await _execute_pipeline(document_id, session)
-        else:
-            async with AsyncSessionLocal() as isolated_session:
-                res = await _execute_pipeline(document_id, isolated_session)
-        cache_client.invalidate_document_caches(document_id=str(document_id))
-        return res
+    # Avoid multiple large PDFs embedding simultaneously on small local machines.
+    async with _ingestion_semaphore:
+        async with async_distributed_lock(f"document:{document_id}", expire_seconds=60.0, timeout_seconds=0.0):
+            if session is not None:
+                res = await _execute_pipeline(document_id, session)
+            else:
+                async with AsyncSessionLocal() as isolated_session:
+                    res = await _execute_pipeline(document_id, isolated_session)
+            await asyncio.to_thread(
+                cache_client.invalidate_document_caches, document_id=str(document_id)
+            )
+            return res
 
 
 async def _execute_pipeline(
@@ -91,37 +100,49 @@ async def _execute_pipeline(
 
     try:
         # 3. Retrieve raw PDF bytes from MinIO
-        if not storage_service.file_exists(document.storage_path):
+        object_exists = await asyncio.to_thread(storage_service.file_exists, document.storage_path)
+        if not object_exists:
             raise AppException(
                 message=f"Storage object '{document.storage_path}' not found in MinIO.",
                 code="STORAGE_OBJECT_NOT_FOUND",
             )
-        pdf_bytes = storage_service.get_file(document.storage_path)
+        pdf_bytes = await asyncio.to_thread(storage_service.get_file, document.storage_path)
 
         # 4. Extract text page-by-page (PyMuPDF)
-        extracted_pages = extract_text_from_pdf(pdf_bytes)
+        extracted_pages = await asyncio.to_thread(extract_text_from_pdf, pdf_bytes)
         if not extracted_pages:
             raise ValidationError("No extractable text found in PDF document.")
 
         # 5. Semantic chunking (LangChain RecursiveCharacterTextSplitter)
-        chunks = chunk_document_pages(extracted_pages)
+        chunks = await asyncio.to_thread(chunk_document_pages, extracted_pages)
         if not chunks:
             raise ValidationError("Document produced 0 text chunks during segmentation.")
 
-        # 6. Generate dense vector embeddings (Sentence Transformers all-MiniLM-L6-v2)
-        chunk_texts = [chunk.text for chunk in chunks]
-        embeddings = embedding_client.embed_texts(chunk_texts)
+        # 6. Replace existing vectors, then embed and index small batches. Keeping only
+        # one batch of float vectors/PointStruct payloads in memory avoids a RAM spike
+        # when a PDF expands into hundreds or thousands of chunks.
+        await asyncio.to_thread(vector_store.delete_document_vectors, document_id)
+        vector_ids = []
+        ingestion_batch_size = settings.RAG_INGESTION_BATCH_SIZE
+        for batch_start in range(0, len(chunks), ingestion_batch_size):
+            chunk_batch = chunks[batch_start:batch_start + ingestion_batch_size]
+            chunk_texts = [chunk.text for chunk in chunk_batch]
+            embeddings = await asyncio.to_thread(
+                embedding_client.embed_texts,
+                chunk_texts,
+                settings.EMBEDDING_BATCH_SIZE,
+            )
+            batch_vector_ids = await asyncio.to_thread(
+                vector_store.upsert_chunks,
+                document_id=document.id,
+                document_title=document.title,
+                category=document.category,
+                chunks=chunk_batch,
+                embeddings=embeddings,
+                role_restriction=document.role_restriction,
+            )
+            vector_ids.extend(batch_vector_ids)
 
-        # 7. Index vectors into Qdrant (remove prior vectors if re-processing)
-        vector_store.delete_document_vectors(document_id)
-        vector_ids = vector_store.upsert_chunks(
-            document_id=document.id,
-            document_title=document.title,
-            category=document.category,
-            chunks=chunks,
-            embeddings=embeddings,
-            role_restriction=document.role_restriction,
-        )
 
         # 8. Clean up prior chunk metadata in PostgreSQL (for re-runs)
         await db.execute(
@@ -185,7 +206,7 @@ async def _execute_pipeline(
 
         # Clean up any partial vectors in Qdrant
         try:
-            vector_store.delete_document_vectors(document_id)
+            await asyncio.to_thread(vector_store.delete_document_vectors, document_id)
         except Exception as qdrant_err:
             logger.warning("Failed to clean up Qdrant vectors during error handling: %s", qdrant_err)
 

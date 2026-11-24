@@ -5,7 +5,7 @@ PRIMARY_HOST="${PRIMARY_HOST:-postgres-primary}"
 PRIMARY_PORT="${PRIMARY_PORT:-5432}"
 PRIMARY_USER="${PRIMARY_USER:-postgres}"
 REPL_USER="${REPL_USER:-uka_replicator}"
-REPL_PASSWORD="${REPL_PASSWORD:-uka_replica_stream_password}"
+: "${REPL_PASSWORD:?REPL_PASSWORD is required}"
 REPL_SLOT="${REPL_SLOT:-replica_1_slot}"
 PGDATA="${PGDATA:-/var/lib/postgresql/data}"
 
@@ -38,8 +38,13 @@ fi
 # Ensure standby.signal exists for PostgreSQL 16
 touch "$PGDATA/standby.signal"
 
-chown -R postgres:postgres "$PGDATA"
-chmod 700 "$PGDATA"
+if [ "$(id -u)" -eq 0 ]; then
+    chown -R postgres:postgres "$PGDATA"
+    chmod 700 "$PGDATA"
+elif [ ! -w "$PGDATA" ]; then
+    echo "ERROR: PGDATA is not writable by UID $(id -u); configure the PVC with fsGroup 999."
+    exit 1
+fi
 
 echo "Starting PostgreSQL 16 as user 'postgres' in read-only standby mode..."
 if command -v gosu >/dev/null 2>&1; then

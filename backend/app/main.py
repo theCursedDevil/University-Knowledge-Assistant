@@ -4,6 +4,7 @@ Configures CORS middleware, exception handlers, Swagger/OpenAPI documentation,
 lifecycle logging, and routes.
 """
 
+import asyncio
 import time
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
@@ -14,6 +15,7 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from backend.app.core.config import get_settings
+from backend.app.core.security import token_validator
 from backend.app.core.logging import setup_logging, logger
 from backend.app.core.errors import (
     AppException,
@@ -28,11 +30,6 @@ from backend.app.core.metrics import (
     update_postgres_replication_lag,
 )
 from backend.app.api.router import api_router
-from backend.app.api.health import router as health_router
-from backend.app.api.documents import router as documents_router
-from backend.app.api.conversations import router as conversations_router
-from backend.app.api.auth import router as auth_router
-from backend.app.api.admin import router as admin_router
 
 settings = get_settings()
 
@@ -77,7 +74,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # 2. Verify Redis cache & locking client connectivity (C-CACHE)
     try:
         from backend.app.core.cache import redis_manager
-        if redis_manager.is_healthy():
+        redis_healthy = await asyncio.to_thread(redis_manager.is_healthy)
+        if redis_healthy:
             logger.info("Connected to Redis cache at %s:%s (db=%s).", settings.REDIS_HOST, settings.REDIS_PORT, settings.REDIS_DB)
         else:
             logger.warning("Redis cache at %s:%s is currently unreachable; operating in graceful fallback mode.", settings.REDIS_HOST, settings.REDIS_PORT)
@@ -87,7 +85,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # 3. Verify MinIO knowledge storage bucket exists (C-DOCSVC)
     try:
         from backend.app.services.storage import storage_service
-        storage_service.ensure_bucket_exists()
+        await asyncio.to_thread(storage_service.ensure_bucket_exists)
         logger.info("MinIO storage bucket '%s' verified.", settings.MINIO_BUCKET_NAME)
     except Exception as exc:
         logger.warning("MinIO bucket initialization deferred: %s", exc)
@@ -106,11 +104,51 @@ def create_app() -> FastAPI:
             "Provides grounded RAG question answering, document ingestion, "
             "and multi-replica synchronization."
         ),
-        docs_url="/docs",
-        redoc_url="/redoc",
-        openapi_url="/openapi.json",
+        docs_url="/docs" if settings.ENVIRONMENT.lower() in ("development", "testing") else None,
+        redoc_url="/redoc" if settings.ENVIRONMENT.lower() in ("development", "testing") else None,
+        openapi_url="/openapi.json" if settings.ENVIRONMENT.lower() in ("development", "testing") else None,
+        swagger_ui_init_oauth={
+            "clientId": settings.KEYCLOAK_CLIENT_ID,
+            "usePkceWithAuthorizationCodeGrant": True,
+            "appName": "University Knowledge Assistant API",
+            "scopes": ["openid", "profile", "email"],
+        },
         lifespan=lifespan,
     )
+
+    # Authenticate document uploads before Starlette/FastAPI parses multipart
+    # bodies. A mere header-presence check is not enough: an unauthenticated client
+    # could otherwise add a bogus Bearer value and still reach the multipart parser.
+    @app.middleware("http")
+    async def early_upload_auth_middleware(request: Request, call_next):
+        normalized_path = request.url.path.rstrip("/")
+        is_upload = request.method == "POST" and normalized_path == f"{settings.API_V1_PREFIX}/documents"
+        if is_upload and settings.ENVIRONMENT.lower() != "testing":
+            authorization = request.headers.get("authorization", "")
+            raw_token = (
+                authorization[7:].strip()
+                if authorization.lower().startswith("bearer ")
+                else request.cookies.get("uka_access_token", "")
+            )
+            valid_local_token = (
+                raw_token.startswith("dev-token-")
+                and settings.ENVIRONMENT.lower() == "development"
+                and settings.ENABLE_DEV_AUTH
+            )
+            if not raw_token:
+                return JSONResponse(
+                    status_code=401,
+                    content={"error": {"code": "UNAUTHORIZED", "message": "Authentication is required."}},
+                )
+            if not valid_local_token:
+                try:
+                    await asyncio.to_thread(token_validator.validate_token, raw_token)
+                except Exception:
+                    return JSONResponse(
+                        status_code=401,
+                        content={"error": {"code": "UNAUTHORIZED", "message": "A valid session is required."}},
+                    )
+        return await call_next(request)
 
     # 1. CORS Middleware (Restricted to Authorized Frontend Origins)
     app.add_middleware(
@@ -155,11 +193,12 @@ def create_app() -> FastAPI:
             return await call_next(request)
 
         start_time = time.perf_counter()
-        endpoint = request.url.path
         method = request.method
         try:
             response = await call_next(request)
             duration = time.perf_counter() - start_time
+            route = request.scope.get("route")
+            endpoint = getattr(route, "path", "/unmatched")
             status_code = str(response.status_code)
 
             HTTP_REQUESTS_TOTAL.labels(method=method, endpoint=endpoint, status_code=status_code).inc()
@@ -170,6 +209,8 @@ def create_app() -> FastAPI:
             return response
         except Exception:
             duration = time.perf_counter() - start_time
+            route = request.scope.get("route")
+            endpoint = getattr(route, "path", "/unmatched")
             HTTP_REQUESTS_TOTAL.labels(method=method, endpoint=endpoint, status_code="500").inc()
             HTTP_REQUEST_DURATION_SECONDS.labels(method=method, endpoint=endpoint).observe(duration)
             HTTP_ERRORS_TOTAL.labels(method=method, endpoint=endpoint, status_code="500").inc()
@@ -253,25 +294,28 @@ def create_app() -> FastAPI:
     @app.exception_handler(Exception)
     async def generic_exception_handler(request: Request, exc: Exception) -> JSONResponse:
         logger.exception("Unhandled server exception on %s %s: %s", request.method, request.url.path, exc)
+        response_headers = {}
+        origin = request.headers.get("origin")
+        if origin and origin in settings.CORS_ORIGINS:
+            response_headers = {
+                "Access-Control-Allow-Origin": origin,
+                "Access-Control-Allow-Credentials": "true",
+                "Vary": "Origin",
+            }
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            headers=response_headers,
             content=ErrorResponse(
                 error=ErrorDetail(
                     code="INTERNAL_SERVER_ERROR",
                     message="An unexpected server error occurred.",
-                    details=str(exc) if settings.DEBUG else None,
+                    details=None,
                 )
             ).model_dump(),
         )
 
-    # 3. Mount Direct Endpoints at Root (/health, /documents, /conversations, /me, /admin) per requirements
-    app.include_router(health_router, prefix="", tags=["Health"])
-    app.include_router(documents_router, prefix="", tags=["Documents"])
-    app.include_router(conversations_router, prefix="", tags=["Conversations"])
-    app.include_router(auth_router, prefix="", tags=["Auth"])
-    app.include_router(admin_router, prefix="", tags=["Admin"])
-
-    # 4. Mount Versioned API Router (/api/v1)
+    # Mount all application routes once under the versioned API prefix.
+    # The metrics endpoint below is intentionally separate for Prometheus scraping.
     app.include_router(api_router, prefix=settings.API_V1_PREFIX)
 
     # 5. Prometheus Scrape Endpoint (C-MON, FR-MON, Prompt 27)

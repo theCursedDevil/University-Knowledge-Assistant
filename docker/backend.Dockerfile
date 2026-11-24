@@ -29,7 +29,11 @@ RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
 
 # Pre-download SentenceTransformer all-MiniLM-L6-v2 model into image cache
 ENV HF_HOME=/opt/huggingface
-RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')"
+ENV OMP_NUM_THREADS=1
+ENV MKL_NUM_THREADS=1
+ENV OPENBLAS_NUM_THREADS=1
+ENV TOKENIZERS_PARALLELISM=false
+RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2', device='cpu')"
 
 # ------------------------------------------------------------------------------
 # Stage 2: Runtime Environment
@@ -56,6 +60,12 @@ ENV PATH="/opt/venv/bin:$PATH"
 ENV PYTHONPATH=/app
 ENV HF_HOME=/opt/huggingface
 ENV PYTHONUNBUFFERED=1
+ENV HF_HUB_OFFLINE=1
+ENV TRANSFORMERS_OFFLINE=1
+ENV OMP_NUM_THREADS=1
+ENV MKL_NUM_THREADS=1
+ENV OPENBLAS_NUM_THREADS=1
+ENV TOKENIZERS_PARALLELISM=false
 
 # Copy application source code, Alembic migrations, and entrypoint
 COPY backend /app/backend
@@ -71,7 +81,7 @@ USER appuser
 EXPOSE 8000
 
 HEALTHCHECK --interval=10s --timeout=5s --start-period=30s --retries=5 \
-    CMD curl -f http://localhost:8000/health || exit 1
+    CMD curl -f http://localhost:8000/api/v1/health || exit 1
 
 ENTRYPOINT ["/app/docker/backend/entrypoint.sh"]
 CMD ["uvicorn", "backend.app.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]

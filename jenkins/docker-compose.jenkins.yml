@@ -1,0 +1,47 @@
+# ==============================================================================
+# Jenkins CI/CD Server — Docker Compose (Local Development / Demo)
+#
+# Launches Jenkins with Docker-in-Docker support so pipeline stages
+# can build and push Docker images from within the Jenkins container.
+#
+# Usage:
+#   docker compose -f jenkins/docker-compose.jenkins.yml up -d
+#   Open http://localhost:9090
+#
+# Initial Setup:
+#   1. Get admin password:  docker exec uka-jenkins cat /var/jenkins_home/secrets/initialAdminPassword
+#   2. Install suggested plugins + Pipeline, Docker Pipeline, Kubernetes CLI
+#   3. Create a Pipeline job pointing to this repository's Jenkinsfile
+# ==============================================================================
+
+services:
+  jenkins:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: uka-jenkins:latest
+    container_name: uka-jenkins
+    restart: unless-stopped
+    user: root
+    ports:
+      - "9090:8080"      # Jenkins Web UI
+      - "50000:50000"    # Jenkins agent port
+    volumes:
+      - jenkins_home:/var/jenkins_home
+      - /var/run/docker.sock:/var/run/docker.sock   # Docker-in-Docker
+      - ..:/workspace:ro                            # Mount project for local pipeline
+    environment:
+      JAVA_OPTS: >-
+        -Djenkins.install.runSetupWizard=true
+        -Dhudson.model.DirectoryBrowserSupport.CSP=
+      JENKINS_OPTS: "--prefix=/"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/login"]
+      interval: 15s
+      timeout: 5s
+      start_period: 60s
+      retries: 5
+
+volumes:
+  jenkins_home:
+    driver: local

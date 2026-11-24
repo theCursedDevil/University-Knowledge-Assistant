@@ -6,6 +6,7 @@ Endpoints:
 - DELETE /documents/{id}: Cascading deletion from MinIO and PostgreSQL, audit log (Admin only).
 """
 
+import asyncio
 import re
 import uuid
 from datetime import datetime
@@ -67,7 +68,6 @@ class DocumentPreviewResponse(BaseModel):
     category: str
     role_restriction: Optional[str] = None
     status: str
-    storage_path: str
     page_count: int
     pages: List[ExtractedPage]
 
@@ -79,7 +79,6 @@ class DocumentResponse(BaseModel):
     title: str
     category: str
     role_restriction: Optional[str] = None
-    storage_path: str
     uploaded_by: Optional[uuid.UUID] = None
     status: str
     version: int
@@ -96,7 +95,6 @@ class DocumentUploadResponse(BaseModel):
     title: str
     category: str
     role_restriction: Optional[str] = None
-    storage_path: str
     status: str
     version: int
     created_at: datetime
@@ -150,8 +148,8 @@ def check_document_access(document: Union[Document, DocumentResponse, Any], user
 async def upload_document(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(..., description="PDF document file to upload."),
-    category: str = Form(..., description="Document category (e.g. 'Academic', 'Admissions', 'Hostel', 'Regulations')."),
-    title: Optional[str] = Form(default=None, description="Optional custom document title."),
+    category: str = Form(..., max_length=100, description="Document category (e.g. 'Academic', 'Admissions', 'Hostel', 'Regulations')."),
+    title: Optional[str] = Form(default=None, max_length=255, description="Optional custom document title."),
     role_restriction: Optional[str] = Form(default=None, description="Optional role restriction: 'all', 'student', 'faculty', 'admin'."),
     auto_process: Optional[bool] = Query(default=None, description="Automatically trigger processing pipeline in background."),
     auto_process_form: Optional[str] = Form(default=None, alias="auto_process", description="Form field for auto_process."),
@@ -175,20 +173,27 @@ async def upload_document(
             details={"content_type": content_type},
         )
 
-    # 3. Read File Content & Check Size
-    content = await file.read()
+    # 3. Read in bounded chunks so an oversized multipart upload cannot allocate
+    # unbounded memory before the configured file-size limit is enforced.
+    content_buffer = bytearray()
+    while True:
+        remaining = settings.MAX_UPLOAD_SIZE_BYTES + 1 - len(content_buffer)
+        chunk = await file.read(min(64 * 1024, max(1, remaining)))
+        if not chunk:
+            break
+        content_buffer.extend(chunk)
+        if len(content_buffer) > settings.MAX_UPLOAD_SIZE_BYTES:
+            raise AppException(
+                message=f"File exceeds the maximum allowed size of {settings.MAX_UPLOAD_SIZE_BYTES} bytes.",
+                code="FILE_TOO_LARGE",
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                details={"max_bytes": settings.MAX_UPLOAD_SIZE_BYTES},
+            )
+    content = bytes(content_buffer)
     file_size = len(content)
 
     if file_size == 0:
         raise ValidationError(message="Uploaded file is empty (0 bytes).")
-
-    if file_size > settings.MAX_UPLOAD_SIZE_BYTES:
-        raise AppException(
-            message=f"File size ({file_size} bytes) exceeds maximum limit of {settings.MAX_UPLOAD_SIZE_BYTES} bytes (25MB).",
-            code="FILE_TOO_LARGE",
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            details={"size_bytes": file_size, "max_bytes": settings.MAX_UPLOAD_SIZE_BYTES},
-        )
 
     # 4. Validate Magic Bytes (%PDF-)
     if not content.startswith(b"%PDF"):
@@ -213,7 +218,8 @@ async def upload_document(
     object_key = f"documents/{doc_id}/{sanitized_filename}"
 
     # 7. Upload to MinIO Object Storage
-    storage_path = storage_service.upload_file(
+    storage_path = await asyncio.to_thread(
+        storage_service.upload_file,
         object_name=object_key,
         data=content,
         length=file_size,
@@ -255,11 +261,11 @@ async def upload_document(
         # Record write for read-your-own-writes session consistency (FR-DBSYNC-003)
         replica_router.record_user_write(current_user.id, secondary_id=getattr(current_user, "email", None))
         # Invalidate cached document listings and admin stats on upload (FR-CACHE-001)
-        cache_client.invalidate_document_caches()
+        await asyncio.to_thread(cache_client.invalidate_document_caches)
     except Exception as exc:
         logger.error("Database commit failed for doc %s; cleaning up MinIO object: %s", doc_id, exc)
         # Prevent orphaned storage objects
-        storage_service.delete_file(storage_path)
+        await asyncio.to_thread(storage_service.delete_file, storage_path)
         await db.rollback()
         raise
 
@@ -278,7 +284,6 @@ async def upload_document(
         title=document.title,
         category=document.category,
         role_restriction=document.role_restriction,
-        storage_path=document.storage_path,
         status=document.status,
         version=document.version,
         created_at=document.created_at,
@@ -366,7 +371,7 @@ async def list_documents(
         skip=skip,
         limit=limit,
     )
-    cached_docs = cache_client.get(cache_key)
+    cached_docs = await asyncio.to_thread(cache_client.get, cache_key)
     if cached_docs is not None:
         response.headers["X-Cache"] = "HIT"
         logger.debug("[CACHE] Hit for document list '%s'", cache_key)
@@ -400,7 +405,9 @@ async def list_documents(
 
     # Cache serialized documents list
     serialized = [DocumentResponse.model_validate(d).model_dump(mode="json") for d in docs]
-    cache_client.set(cache_key, serialized, ttl=settings.CACHE_DOCUMENTS_LIST_TTL)
+    await asyncio.to_thread(
+        cache_client.set, cache_key, serialized, ttl=settings.CACHE_DOCUMENTS_LIST_TTL
+    )
     return docs
 
 
@@ -420,7 +427,7 @@ async def get_document(
 ) -> DocumentResponse:
     """Retrieves single document metadata with caching and role-based access check."""
     cache_key = cache_client.build_document_detail_key(str(id))
-    cached = cache_client.get(cache_key)
+    cached = await asyncio.to_thread(cache_client.get, cache_key)
     if cached is not None:
         doc_resp = DocumentResponse.model_validate(cached)
         check_document_access(doc_resp, current_user)
@@ -438,7 +445,10 @@ async def get_document(
         )
     check_document_access(doc, current_user)
     doc_resp = DocumentResponse.model_validate(doc)
-    cache_client.set(cache_key, doc_resp.model_dump(mode="json"), ttl=settings.CACHE_DEFAULT_TTL_SECONDS)
+    await asyncio.to_thread(
+        cache_client.set, cache_key, doc_resp.model_dump(mode="json"),
+        ttl=settings.CACHE_DEFAULT_TTL_SECONDS,
+    )
     return doc_resp
 
 
@@ -468,8 +478,8 @@ async def preview_document(
 
     pages = []
     try:
-        pdf_bytes = storage_service.get_file(doc.storage_path)
-        pages = extract_text_from_pdf(pdf_bytes)
+        pdf_bytes = await asyncio.to_thread(storage_service.get_file, doc.storage_path)
+        pages = await asyncio.to_thread(extract_text_from_pdf, pdf_bytes)
     except Exception as exc:
         logger.warning("Could not extract live PDF preview for doc %s: %s", id, exc)
 
@@ -479,7 +489,6 @@ async def preview_document(
         category=doc.category,
         role_restriction=doc.role_restriction,
         status=doc.status,
-        storage_path=doc.storage_path,
         page_count=len(pages),
         pages=pages,
     )
@@ -603,7 +612,15 @@ async def update_document(
 
     # 7. Record write for read-your-own-writes session consistency (FR-DBSYNC-003)
     replica_router.record_user_write(current_user.id, secondary_id=getattr(current_user, "email", None))
-    cache_client.invalidate_document_caches(document_id=str(id))
+    await asyncio.to_thread(cache_client.invalidate_document_caches, document_id=str(id))
+
+    if payload.role_restriction is not None:
+        try:
+            await asyncio.to_thread(vector_store.set_document_role_restriction, id, restr_val)
+        except Exception as exc:
+            # Do not roll back the authoritative PostgreSQL restriction. RAG queries
+            # also filter against PostgreSQL document IDs/restrictions.
+            logger.error("Qdrant role metadata sync failed for document %s: %s", id, exc)
 
     # 8. Reload refreshed document
     refreshed_doc = (await db.execute(select(Document).where(Document.id == id))).scalar_one()
@@ -637,12 +654,13 @@ async def delete_document(
 
         # 1. Remove object from MinIO
         storage_path = document.storage_path
-        if storage_service.file_exists(storage_path):
-            storage_service.delete_file(storage_path)
+        object_exists = await asyncio.to_thread(storage_service.file_exists, storage_path)
+        if object_exists:
+            await asyncio.to_thread(storage_service.delete_file, storage_path)
 
         # 2. Remove vector points from Qdrant
         try:
-            vector_store.delete_document_vectors(id)
+            await asyncio.to_thread(vector_store.delete_document_vectors, id)
         except Exception as exc:
             logger.warning("Failed to delete Qdrant vectors for doc %s: %s", id, exc)
 
@@ -660,7 +678,7 @@ async def delete_document(
         await db.delete(document)
         await db.commit()
         replica_router.record_user_write(current_user.id, secondary_id=getattr(current_user, "email", None))
-        cache_client.invalidate_document_caches(document_id=str(id))
+        await asyncio.to_thread(cache_client.invalidate_document_caches, document_id=str(id))
 
         logger.info("Document deleted: id=%s title='%s'", id, document.title)
         return DocumentDeleteResponse(
@@ -690,13 +708,34 @@ class DocumentSearchRequest(BaseModel):
 async def search_documents(
     search_request: DocumentSearchRequest,
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_read_db),
 ) -> List[SearchResult]:
-    """Retrieves top-k relevant chunks from Qdrant matching the search query, filtered by user role permissions."""
-    return vector_store.search(
+    """Retrieves chunks only for existing, indexed documents visible to the user."""
+    if current_user.role == "admin":
+        visibility = Document.role_restriction.is_not(None) | Document.role_restriction.is_(None)
+    elif current_user.role == "faculty":
+        visibility = or_(
+            Document.role_restriction.is_(None),
+            Document.role_restriction.in_(("all", "public", "student", "faculty")),
+        )
+    else:
+        visibility = or_(
+            Document.role_restriction.is_(None),
+            Document.role_restriction.in_(("all", "public", "student")),
+        )
+    result = await db.execute(
+        select(Document.id).where(Document.status.in_(("ready", "indexed")), visibility)
+    )
+    allowed_ids = [str(doc_id) for doc_id in result.scalars().all()]
+    if not allowed_ids:
+        return []
+    return await asyncio.to_thread(
+        vector_store.search,
         query=search_request.query,
         limit=search_request.limit,
         score_threshold=search_request.score_threshold,
         filter_category=search_request.category,
         filter_document_id=search_request.document_id,
         user_role=current_user.role,
+        allowed_document_ids=allowed_ids,
     )

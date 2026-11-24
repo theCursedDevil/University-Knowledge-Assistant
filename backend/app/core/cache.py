@@ -56,6 +56,8 @@ class RedisManager:
         self._client: Optional[Any] = None
         self._release_script: Optional[Any] = None
         self._extend_script: Optional[Any] = None
+        self._last_init_attempt = 0.0
+        self._retry_interval_seconds = 15.0
         self._init_client()
 
     @classmethod
@@ -73,6 +75,7 @@ class RedisManager:
             self._client = None
             return
 
+        self._last_init_attempt = time.monotonic()
         try:
             client = redis.Redis(
                 host=settings.REDIS_HOST,
@@ -99,8 +102,8 @@ class RedisManager:
             self._client = None
 
     def get_client(self) -> Optional[Any]:
-        """Returns the Redis client or None if unreachable."""
-        if self._client is None:
+        """Returns Redis client; retry failed initialization on a bounded interval."""
+        if self._client is None and time.monotonic() - self._last_init_attempt >= self._retry_interval_seconds:
             self._init_client()
         return self._client
 

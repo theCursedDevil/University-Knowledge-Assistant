@@ -2,11 +2,12 @@
 
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional
-from fastapi import APIRouter, status
+from fastapi import APIRouter, status, Depends
 from pydantic import BaseModel, Field
 
 from backend.app.core.config import get_settings
-from backend.app.services.external import ExternalServicesConfig
+from backend.app.core.auth_dev import require_admin
+from backend.app.db.models import User
 
 settings = get_settings()
 router = APIRouter()
@@ -25,11 +26,7 @@ class HealthResponse(BaseModel):
     status: str = Field(default="healthy", description="Overall backend health status.")
     app_name: str = Field(..., description="Application name.")
     version: str = Field(..., description="Application version.")
-    environment: str = Field(..., description="Runtime environment.")
     timestamp: str = Field(..., description="ISO 8601 UTC timestamp of status check.")
-    services: Dict[str, Any] = Field(
-        default_factory=dict, description="Configuration summary of external dependencies."
-    )
 
 
 @router.get(
@@ -37,20 +34,16 @@ class HealthResponse(BaseModel):
     response_model=HealthResponse,
     status_code=status.HTTP_200_OK,
     summary="Backend Health Check",
-    description="Returns backend health status, application version, environment, and external service configuration state.",
+    description="Returns minimal liveness information without exposing service topology.",
     tags=["Health"],
 )
 async def get_health() -> HealthResponse:
-    """Returns the backend's health status and service metadata."""
-    services_summary = ExternalServicesConfig.get_summary()
-
+    """Returns minimal liveness information without exposing service topology."""
     return HealthResponse(
         status="healthy",
         app_name=settings.PROJECT_NAME,
         version=settings.VERSION,
-        environment=settings.ENVIRONMENT,
         timestamp=datetime.now(timezone.utc).isoformat(),
-        services=services_summary,
     )
 
 
@@ -61,7 +54,9 @@ async def get_health() -> HealthResponse:
     description="Returns detailed connectivity, standby recovery state, and WAL streaming status for Primary and Replicas.",
     tags=["Health"],
 )
-async def get_db_health() -> Dict[str, Any]:
+async def get_db_health(
+    current_user: User = Depends(require_admin),
+) -> Dict[str, Any]:
     """Returns connectivity, standby recovery, and WAL replication metrics across all database nodes."""
     from backend.app.db.session import check_db_connection
     return await check_db_connection()

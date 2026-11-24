@@ -158,12 +158,14 @@ export function PermissionDeniedState({
           <ArrowLeft className="w-3.5 h-3.5" />
           Return to Dashboard
         </Link>
-        <button
-          onClick={() => switchRole("admin")}
-          className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-medium rounded-md bg-accent text-white hover:bg-accent-hover transition"
-        >
-          Switch to Admin Persona (Dev Mode)
-        </button>
+        {process.env.NEXT_PUBLIC_DEV_LOGIN === "true" && (
+          <button
+            onClick={() => switchRole("admin")}
+            className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-medium rounded-md bg-accent text-white hover:bg-accent-hover transition"
+          >
+            Switch to Admin Persona (Dev Mode)
+          </button>
+        )}
       </div>
     </div>
   );

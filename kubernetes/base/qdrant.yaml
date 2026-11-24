@@ -20,42 +20,55 @@ spec:
         app.kubernetes.io/component: qdrant
     spec:
       containers:
-        - name: qdrant
-          image: qdrant/qdrant:latest
-          imagePullPolicy: IfNotPresent
-          ports:
-            - containerPort: 6333
-              name: http
-            - containerPort: 6334
-              name: grpc
-          volumeMounts:
-            - name: storage
-              mountPath: /qdrant/storage
-          livenessProbe:
-            httpGet:
-              path: /readyz
-              port: 6333
-            initialDelaySeconds: 10
-            periodSeconds: 10
-            timeoutSeconds: 3
-          readinessProbe:
-            httpGet:
-              path: /readyz
-              port: 6333
-            initialDelaySeconds: 5
-            periodSeconds: 5
-            timeoutSeconds: 3
-          resources:
-            requests:
-              cpu: 100m
-              memory: 128Mi
-            limits:
-              cpu: 500m
-              memory: 512Mi
-      volumes:
+      - name: qdrant
+        image: qdrant/qdrant:1.20.1
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 6333
+          name: http
+        - containerPort: 6334
+          name: grpc
+        volumeMounts:
         - name: storage
-          persistentVolumeClaim:
-            claimName: qdrant-pvc
+          mountPath: /qdrant/storage
+        livenessProbe:
+          httpGet:
+            path: /readyz
+            port: 6333
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 3
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: 6333
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        env:
+        - name: QDRANT__SERVICE__API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: uka-secrets
+              key: QDRANT_API_KEY
+        securityContext:
+          allowPrivilegeEscalation: false
+          seccompProfile:
+            type: RuntimeDefault
+          capabilities:
+            drop:
+            - ALL
+      volumes:
+      - name: storage
+        persistentVolumeClaim:
+          claimName: qdrant-pvc
 ---
 apiVersion: v1
 kind: Service
@@ -68,11 +81,11 @@ metadata:
 spec:
   type: ClusterIP
   ports:
-    - port: 6333
-      targetPort: 6333
-      name: http
-    - port: 6334
-      targetPort: 6334
-      name: grpc
+  - port: 6333
+    targetPort: 6333
+    name: http
+  - port: 6334
+    targetPort: 6334
+    name: grpc
   selector:
     app: qdrant

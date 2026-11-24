@@ -1,0 +1,37 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+spec:
+  template:
+    spec:
+      securityContext:
+        fsGroup: 1000
+      containers:
+        - name: backend
+          env:
+            - name: OMP_NUM_THREADS
+              value: '1'
+            - name: MKL_NUM_THREADS
+              value: '1'
+            - name: OPENBLAS_NUM_THREADS
+              value: '1'
+            - name: TOKENIZERS_PARALLELISM
+              value: 'false'
+            - name: TORCH_HOME
+              value: /tmp/torch
+            - name: XDG_CACHE_HOME
+              value: /tmp/.cache
+          volumeMounts:
+            - name: hf-locks
+              mountPath: /opt/huggingface/hub/.locks
+          resources:
+            requests:
+              cpu: 150m
+              memory: 384Mi
+            limits:
+              cpu: '1'
+              memory: 1024Mi
+      volumes:
+        - name: hf-locks
+          emptyDir: {}

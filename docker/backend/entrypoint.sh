@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
 echo "[BACKEND ENTRYPOINT] Checking PostgreSQL Primary connectivity..."
 max_retries=30
@@ -22,9 +22,7 @@ if [ $count -ge $max_retries ]; then
 fi
 
 echo "[BACKEND ENTRYPOINT] PostgreSQL Primary is ready. Running database migrations (alembic upgrade head)..."
-alembic upgrade head || {
-    echo "[BACKEND ENTRYPOINT] Note: Alembic upgrade finished with status $?."
-}
+alembic upgrade head
 
 echo "[BACKEND ENTRYPOINT] Executing command: $@"
 exec "$@"

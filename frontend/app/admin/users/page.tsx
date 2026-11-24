@@ -235,6 +235,8 @@ export default function AdminUserManagementPage() {
                 <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800 text-zinc-700 dark:text-zinc-300">
                   {filteredUsers.map((user) => {
                     const isSelf = user.id === currentUser.id;
+                    const isOtherAdmin = user.role === "admin" && !isSelf;
+                    const isProtectedAdmin = isSelf || isOtherAdmin;
                     const isActive = (user.status || "active") === "active";
 
                     return (
@@ -309,24 +311,37 @@ export default function AdminUserManagementPage() {
 
                             <button
                               onClick={() => handleOpenRoleModal(user)}
-                              title="Edit Role"
-                              className="p-1.5 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 transition cursor-pointer"
+                              disabled={isProtectedAdmin}
+                              title={
+                                isSelf
+                                  ? "Cannot edit own admin role"
+                                  : isOtherAdmin
+                                  ? "Peer administrator role protected"
+                                  : "Edit Role"
+                              }
+                              className={`p-1.5 rounded transition ${
+                                isProtectedAdmin
+                                  ? "opacity-30 cursor-not-allowed text-zinc-400"
+                                  : "hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 cursor-pointer"
+                              }`}
                             >
                               <Edit2 className="w-3.5 h-3.5" />
                             </button>
 
                             <button
                               onClick={() => setStatusTargetUser(user)}
-                              disabled={isSelf}
+                              disabled={isProtectedAdmin}
                               title={
                                 isSelf
                                   ? "Cannot disable own admin account"
+                                  : isOtherAdmin
+                                  ? "Peer administrator account protected"
                                   : isActive
                                   ? "Disable Account"
                                   : "Enable Account"
                               }
                               className={`p-1.5 rounded transition ${
-                                isSelf
+                                isProtectedAdmin
                                   ? "opacity-30 cursor-not-allowed text-zinc-400"
                                   : isActive
                                   ? "hover:bg-red-50 dark:hover:bg-red-950/30 text-zinc-500 hover:text-red-600 cursor-pointer"

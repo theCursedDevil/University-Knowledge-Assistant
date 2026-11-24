@@ -5,8 +5,10 @@ per client (authenticated user ID, token subject, or IP address).
 Returns HTTP 429 Too Many Requests when limits are exceeded, compliant with RFC 6585.
 """
 
+import asyncio
 import time
 import threading
+import uuid
 from typing import Dict, List, Optional, Tuple
 from fastapi import Request, Depends
 
@@ -15,8 +17,28 @@ from backend.app.core.errors import RateLimitExceededError
 from backend.app.core.logging import logger
 from backend.app.db.models import User
 from backend.app.core.security import get_current_user
+from backend.app.core.cache import redis_manager
 
 settings = get_settings()
+
+REDIS_SLIDING_WINDOW_SCRIPT = """
+local key = KEYS[1]
+local now_ms = tonumber(ARGV[1])
+local window_ms = tonumber(ARGV[2])
+local limit = tonumber(ARGV[3])
+local member = ARGV[4]
+redis.call('ZREMRANGEBYSCORE', key, 0, now_ms - window_ms)
+local count = redis.call('ZCARD', key)
+if count >= limit then
+  local oldest = redis.call('ZRANGE', key, 0, 0, 'WITHSCORES')
+  local retry_ms = window_ms
+  if oldest[2] then retry_ms = math.max(1, tonumber(oldest[2]) + window_ms - now_ms) end
+  return {0, count, math.ceil(retry_ms / 1000)}
+end
+redis.call('ZADD', key, now_ms, member)
+redis.call('PEXPIRE', key, window_ms)
+return {1, count + 1, 0}
+"""
 
 
 class SlidingWindowRateLimiter:
@@ -39,6 +61,25 @@ class SlidingWindowRateLimiter:
         """
         now = time.time()
         window_start = now - window_seconds
+
+        # Atomic Redis sorted-set window shares limits across pods. Tests and
+        # Redis outages use the in-process fallback below.
+        if settings.ENVIRONMENT.lower() != "testing":
+            client = redis_manager.get_client()
+            if client is not None:
+                try:
+                    result = client.eval(
+                        REDIS_SLIDING_WINDOW_SCRIPT,
+                        1,
+                        f"uka:rate-limit:{key}",
+                        int(now * 1000),
+                        int(window_seconds * 1000),
+                        int(limit),
+                        uuid.uuid4().hex,
+                    )
+                    return bool(int(result[0])), int(result[1]), int(result[2])
+                except Exception as exc:
+                    logger.warning("Redis rate-limit check failed; using local fallback: %s", exc)
 
         with self._lock:
             # Retrieve or initialize list of timestamps
@@ -107,6 +148,19 @@ class SlidingWindowRateLimiter:
 rate_limiter = SlidingWindowRateLimiter()
 
 
+async def check_auth_rate_limit(request: Request) -> None:
+    """Rate limit unauthenticated OIDC token/login endpoints by peer IP."""
+    client_key = request.client.host if request.client else "unknown"
+    auth_limit = getattr(settings, "RATE_LIMIT_AUTH_RPM", 10)
+    await asyncio.to_thread(
+        rate_limiter.check_rate_limit,
+        key=client_key,
+        limit=auth_limit,
+        window_seconds=60,
+        scope="auth",
+    )
+
+
 async def check_llm_rate_limit(
     request: Request,
     current_user: User = Depends(get_current_user),
@@ -114,4 +168,10 @@ async def check_llm_rate_limit(
     """FastAPI route dependency that enforces per-user LLM query rate limits."""
     # Key on authenticated user ID; fall back to client IP address
     client_key = str(current_user.id) if current_user else (request.client.host if request.client else "unknown")
-    rate_limiter.check_rate_limit(key=client_key, limit=settings.RATE_LIMIT_LLM_RPM, window_seconds=60, scope="llm")
+    await asyncio.to_thread(
+        rate_limiter.check_rate_limit,
+        key=client_key,
+        limit=settings.RATE_LIMIT_LLM_RPM,
+        window_seconds=60,
+        scope="llm",
+    )

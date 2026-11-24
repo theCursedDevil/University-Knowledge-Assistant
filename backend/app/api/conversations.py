@@ -21,7 +21,7 @@ from backend.app.core.auth_dev import get_current_user
 from backend.app.core.errors import NotFoundError, ForbiddenError, ValidationError
 from backend.app.core.logging import logger
 from backend.app.db.session import get_db, get_read_db, AsyncSessionLocal, replica_router
-from backend.app.db.models import User, Conversation, Message
+from backend.app.db.models import User, Conversation, Message, AuditLog
 from backend.app.rag.rag_service import rag_service
 from backend.app.core.rate_limit import check_llm_rate_limit
 from backend.app.rag.citation import Citation
@@ -344,6 +344,7 @@ async def post_message(
                                     conv.title = user_content[:50].strip()
 
                             await session.commit()
+                            replica_router.record_user_write(current_user.id, secondary_id=getattr(current_user, "email", None))
 
                             logger.info(
                                 "Streamed chat turn completed for conv %s: user message %s -> assistant message %s (%d citations)",
@@ -364,7 +365,7 @@ async def post_message(
 
             except Exception as exc:
                 logger.error("SSE stream interrupted or LLM failed for conversation %s: %s", conversation.id, exc)
-                err_payload = json.dumps({"error": str(exc), "done": True})
+                err_payload = json.dumps({"error": "The assistant could not complete this response. Please try again.", "done": True})
                 yield f"data: {err_payload}\n\n"
 
         return StreamingResponse(
@@ -456,6 +457,16 @@ async def delete_conversation(
             details={"conversation_id": str(id), "user_id": str(current_user.id)},
         )
 
+    db.add(AuditLog(
+        user_id=current_user.id,
+        action="CONVERSATION_DELETE",
+        entity="conversations",
+        entity_id=str(id),
+        details={
+            "owner_user_id": str(conv.user_id),
+            "admin_override": bool(current_user.role == "admin" and conv.user_id != current_user.id),
+        },
+    ))
     await db.delete(conv)
     await db.commit()
     replica_router.record_user_write(current_user.id)

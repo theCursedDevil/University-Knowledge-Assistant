@@ -5,8 +5,10 @@ grounded prompt assembly with XML boundaries, low-temperature LLM generation, an
 citation resolution.
 """
 
+import asyncio
 from typing import List, Dict, Optional, Any, AsyncGenerator
 from pydantic import BaseModel, Field
+from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.core.config import get_settings
@@ -18,6 +20,7 @@ from backend.app.rag.llm import llm_client
 from backend.app.rag.citation import citation_resolver, Citation
 from backend.app.rag.groundedness import groundedness_checker
 from backend.app.rag.conversation_summarizer import conversation_summarizer
+from backend.app.db.models import Document
 
 settings = get_settings()
 
@@ -57,6 +60,58 @@ class RAGService:
         self.llm = llm_client
         self.citation_resolver = citation_resolver
 
+    async def _get_accessible_document_ids(
+        self,
+        session: Optional[AsyncSession],
+        user_role: Optional[str],
+    ) -> Optional[List[str]]:
+        """Use PostgreSQL as the source of truth for documents visible to this user.
+
+        The allow-list also makes stale Qdrant points for deleted documents unreachable.
+        None is returned only for internal calls that do not supply a DB session.
+        """
+        if session is None:
+            return None
+        role = (user_role or "").strip().lower()
+        if role == "admin":
+            stmt = select(Document.id).where(Document.status.in_(("ready", "indexed")))
+        else:
+            permitted = {
+                "student": ("all", "public", "student"),
+                "faculty": ("all", "public", "student", "faculty"),
+            }.get(role)
+            if permitted is None:
+                return []
+            stmt = select(Document.id).where(
+                Document.status.in_(("ready", "indexed")),
+                or_(Document.role_restriction.is_(None), Document.role_restriction.in_(permitted)),
+            )
+        result = await session.execute(stmt)
+        return [str(document_id) for document_id in result.scalars().all()]
+
+    async def _retrieve(
+        self,
+        *,
+        question: str,
+        top_k: Optional[int],
+        confidence_threshold: Optional[float],
+        filter_category: Optional[str],
+        user_role: Optional[str],
+        session: Optional[AsyncSession],
+    ) -> RetrievalResult:
+        allowed_ids = await self._get_accessible_document_ids(session, user_role)
+        # Embedding and Qdrant client are synchronous. Keep blocking I/O and model work
+        # off the event loop so health probes and concurrent requests remain responsive.
+        return await asyncio.to_thread(
+            self.retriever.retrieve,
+            query=question,
+            top_k=top_k,
+            confidence_threshold=confidence_threshold,
+            filter_category=filter_category,
+            user_role=user_role,
+            allowed_document_ids=allowed_ids,
+        )
+
     async def answer_question(
         self,
         question: str,
@@ -91,12 +146,13 @@ class RAGService:
             RAGResponse object with grounded answer and citations.
         """
         # Step 1 & 2: Top-k vector retrieval and confidence evaluation
-        retrieval: RetrievalResult = self.retriever.retrieve(
-            query=question,
+        retrieval: RetrievalResult = await self._retrieve(
+            question=question,
             top_k=top_k,
             confidence_threshold=confidence_threshold,
             filter_category=filter_category,
             user_role=user_role,
+            session=session,
         )
 
         # Step 3: Check if retrieved content is sufficiently relevant
@@ -205,12 +261,13 @@ class RAGService:
             - {"type": "done", "answer": str, "citations": List[Citation], "is_sufficient": bool, ...} upon completion.
         """
         # Step 1 & 2: Top-k vector retrieval and confidence evaluation
-        retrieval: RetrievalResult = self.retriever.retrieve(
-            query=question,
+        retrieval: RetrievalResult = await self._retrieve(
+            question=question,
             top_k=top_k,
             confidence_threshold=confidence_threshold,
             filter_category=filter_category,
             user_role=user_role,
+            session=session,
         )
 
         # Step 3: Check if retrieved content is sufficiently relevant
@@ -259,8 +316,9 @@ class RAGService:
             user_prompt=user_prompt,
         ):
             tokens.append(token)
-            yield {"type": "token", "token": token}
 
+        # Do not expose or persist model output until the complete answer has passed
+        # groundedness verification. This trades first-token latency for safety.
         full_answer = "".join(tokens).strip()
 
         # Step 6: Derive citations deterministically from the retrieved chunk IDs
@@ -289,8 +347,14 @@ class RAGService:
             )
             groundedness_score = report.score
             is_grounded = report.is_grounded
+            full_answer = report.verified_answer
 
-        # Step 8: Emit completion event with full buffered answer and citations
+        # Emit only checked text. Split into small display chunks to preserve the SSE
+        # client contract without revealing unverified intermediate generations.
+        for start in range(0, len(full_answer), 80):
+            yield {"type": "token", "token": full_answer[start:start + 80]}
+
+        # Step 8: Emit completion event with the same verified answer and citations
         yield {
             "type": "done",
             "answer": full_answer,

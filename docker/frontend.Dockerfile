@@ -1,12 +1,12 @@
 # ==============================================================================
 # Generative AI-Based University Knowledge Assistant — Frontend Dockerfile
-# Production-ready multi-stage build for Next.js 14 application (C-FE)
+# Production-ready multi-stage build for Next.js application (C-FE)
 # ==============================================================================
 
 # ------------------------------------------------------------------------------
 # Stage 1: Install Dependencies
 # ------------------------------------------------------------------------------
-FROM node:20-alpine AS deps
+FROM node:24-alpine AS deps
 RUN apk add --no-cache libc6-compat
 WORKDIR /app
 
@@ -16,15 +16,21 @@ RUN npm ci
 # ------------------------------------------------------------------------------
 # Stage 2: Build Next.js Application (Standalone Output)
 # ------------------------------------------------------------------------------
-FROM node:20-alpine AS builder
+FROM node:24-alpine AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY frontend ./
 
-ARG NEXT_PUBLIC_API_URL=http://localhost:8000
+ARG NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1
 ARG NEXT_PUBLIC_KEYCLOAK_URL=http://localhost:8080
+ARG NEXT_PUBLIC_KEYCLOAK_REALM=university-realm
+ARG NEXT_PUBLIC_KEYCLOAK_CLIENT_ID=university-assistant-client
+ARG NEXT_PUBLIC_DEV_LOGIN=false
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_KEYCLOAK_URL=$NEXT_PUBLIC_KEYCLOAK_URL
+ENV NEXT_PUBLIC_KEYCLOAK_REALM=$NEXT_PUBLIC_KEYCLOAK_REALM
+ENV NEXT_PUBLIC_KEYCLOAK_CLIENT_ID=$NEXT_PUBLIC_KEYCLOAK_CLIENT_ID
+ENV NEXT_PUBLIC_DEV_LOGIN=$NEXT_PUBLIC_DEV_LOGIN
 ENV NEXT_TELEMETRY_DISABLED=1
 
 RUN npm run build
@@ -32,7 +38,7 @@ RUN npm run build
 # ------------------------------------------------------------------------------
 # Stage 3: Minimal Production Runner
 # ------------------------------------------------------------------------------
-FROM node:20-alpine AS runner
+FROM node:24-alpine AS runner
 WORKDIR /app
 
 RUN apk add --no-cache curl

@@ -7,7 +7,8 @@ Provides strongly typed access to core, database, external services, and securit
 from functools import lru_cache
 from typing import Optional, Any
 import json
-from pydantic import Field, field_validator
+from urllib.parse import quote_plus
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -31,12 +32,16 @@ class Settings(BaseSettings):
         description="Semantic version of the application.",
     )
     ENVIRONMENT: str = Field(
-        default="development",
+        default="production",
         description="Runtime environment: development, staging, production, testing.",
     )
     DEBUG: bool = Field(
-        default=True,
+        default=False,
         description="Enable debug mode and verbose tracebacks.",
+    )
+    ENABLE_DEV_AUTH: bool = Field(
+        default=False,
+        description="Explicitly enables mock authentication for local development only; never allowed in production.",
     )
     API_V1_PREFIX: str = Field(
         default="/api/v1",
@@ -90,6 +95,10 @@ class Settings(BaseSettings):
         default=20,
         description="Maximum allowed LLM requests per minute per user/IP address.",
     )
+    RATE_LIMIT_AUTH_RPM: int = Field(
+        default=10,
+        description="Maximum login, code exchange, and refresh requests per minute per client IP.",
+    )
 
     # Cookie & HTTPS Security (NFR-SEC-001)
     SESSION_COOKIE_SECURE: Optional[bool] = Field(
@@ -105,6 +114,10 @@ class Settings(BaseSettings):
     POSTGRES_DB: str = Field(default="university_assistant")
 
     # PostgreSQL Read Replicas & Read-Your-Own-Writes Consistency (FR-DBSYNC-003)
+    DB_READ_REPLICAS_ENABLED: bool = Field(
+        default=True,
+        description="Enable separate PostgreSQL read replicas. Disable for a single-node laptop/demo deployment.",
+    )
     POSTGRES_REPLICA1_HOST: str = Field(default="localhost")
     POSTGRES_REPLICA1_PORT: int = Field(default=5433)
     POSTGRES_REPLICA2_HOST: str = Field(default="localhost")
@@ -170,13 +183,34 @@ class Settings(BaseSettings):
     KEYCLOAK_REALM: str = Field(default="university-realm")
     KEYCLOAK_CLIENT_ID: str = Field(default="university-assistant-client")
     KEYCLOAK_CLIENT_SECRET: Optional[str] = Field(default=None)
+    KEYCLOAK_ISSUER: Optional[str] = Field(
+        default=None,
+        description="Exact token issuer URL advertised by the Keycloak realm, including /realms/{realm}.",
+    )
+    KEYCLOAK_AUDIENCE: Optional[str] = Field(
+        default=None,
+        description="Expected JWT audience. Configure a Keycloak audience mapper for this value.",
+    )
+    KEYCLOAK_REDIRECT_URI: Optional[str] = Field(
+        default=None,
+        description="Exact browser OAuth callback URI accepted by this deployment.",
+    )
 
     # LLM API (Groq)
     GROQ_API_KEY: Optional[str] = Field(default=None)
     GROQ_MODEL: str = Field(default="llama-3.1-8b-instant")
 
-    # Embedding Model
+    # Embedding Model (CPU-friendly defaults for local Docker/Kubernetes demos)
     EMBEDDING_MODEL_NAME: str = Field(default="sentence-transformers/all-MiniLM-L6-v2")
+    EMBEDDING_BATCH_SIZE: int = Field(default=8, ge=1, le=32)
+    EMBEDDING_NUM_THREADS: int = Field(default=1, ge=1, le=8)
+    RAG_INGESTION_BATCH_SIZE: int = Field(default=8, ge=1, le=64)
+    RAG_MAX_CONCURRENT_INGESTIONS: int = Field(
+        default=1,
+        ge=1,
+        le=4,
+        description="Maximum simultaneous document ingestions per backend process.",
+    )
 
     # RAG Generation & Grounding Parameters
     RAG_TOP_K: int = Field(default=5, description="Default number of chunks retrieved per question.")
@@ -201,6 +235,33 @@ class Settings(BaseSettings):
     RAG_GROUNDEDNESS_THRESHOLD: float = Field(default=0.60, description="Minimum factual overlap score to accept answer as grounded.")
     RAG_MAX_RAW_CONVERSATION_TURNS: int = Field(default=4, description="Maximum recent raw conversation turns to retain before summarizing.")
 
+    @model_validator(mode="after")
+    def validate_security_configuration(self):
+        """Reject unsafe development settings when the service is deployed outside local development."""
+        environment = self.ENVIRONMENT.strip().lower()
+        if environment in ("production", "prod", "staging"):
+            if self.ENABLE_DEV_AUTH:
+                raise ValueError("ENABLE_DEV_AUTH must be false outside local development.")
+            if self.DEBUG:
+                raise ValueError("DEBUG must be false in staging and production.")
+            if self.SESSION_COOKIE_SECURE is False:
+                raise ValueError("SESSION_COOKIE_SECURE cannot be false outside local development.")
+            required_secrets = {
+                "POSTGRES_PASSWORD": self.POSTGRES_PASSWORD,
+                "REDIS_PASSWORD": self.REDIS_PASSWORD,
+                "QDRANT_API_KEY": self.QDRANT_API_KEY,
+                "MINIO_SECRET_KEY": self.MINIO_SECRET_KEY,
+                "KEYCLOAK_ISSUER": self.KEYCLOAK_ISSUER,
+                "KEYCLOAK_AUDIENCE": self.KEYCLOAK_AUDIENCE,
+                "KEYCLOAK_REDIRECT_URI": self.KEYCLOAK_REDIRECT_URI,
+            }
+            missing = [name for name, value in required_secrets.items() if not value or not str(value).strip()]
+            if missing:
+                raise ValueError("Missing required production security configuration: " + ", ".join(missing))
+            if self.POSTGRES_PASSWORD == "postgres" or self.MINIO_SECRET_KEY == "minioadmin":
+                raise ValueError("Default PostgreSQL/MinIO credentials are not permitted outside local development.")
+        return self
+
     @property
     def is_cookie_secure(self) -> bool:
         """Determines whether cookies must require HTTPS transmission."""
@@ -211,16 +272,18 @@ class Settings(BaseSettings):
     @property
     def sync_database_url(self) -> str:
         """Synchronous connection URL for Alembic migrations and synchronous drivers."""
+        password = quote_plus(self.POSTGRES_PASSWORD)
         return (
-            f"postgresql://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}"
+            f"postgresql://{self.POSTGRES_USER}:{password}"
             f"@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
         )
 
     @property
     def async_database_url(self) -> str:
         """Asynchronous connection URL for async SQLAlchemy operations."""
+        password = quote_plus(self.POSTGRES_PASSWORD)
         return (
-            f"postgresql+asyncpg://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}"
+            f"postgresql+asyncpg://{self.POSTGRES_USER}:{password}"
             f"@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
         )
 
@@ -232,16 +295,18 @@ class Settings(BaseSettings):
     @property
     def replica1_async_url(self) -> str:
         """Asynchronous connection URL for Read Replica 1."""
+        password = quote_plus(self.POSTGRES_PASSWORD)
         return (
-            f"postgresql+asyncpg://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}"
+            f"postgresql+asyncpg://{self.POSTGRES_USER}:{password}"
             f"@{self.POSTGRES_REPLICA1_HOST}:{self.POSTGRES_REPLICA1_PORT}/{self.POSTGRES_DB}"
         )
 
     @property
     def replica2_async_url(self) -> str:
         """Asynchronous connection URL for Read Replica 2."""
+        password = quote_plus(self.POSTGRES_PASSWORD)
         return (
-            f"postgresql+asyncpg://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}"
+            f"postgresql+asyncpg://{self.POSTGRES_USER}:{password}"
             f"@{self.POSTGRES_REPLICA2_HOST}:{self.POSTGRES_REPLICA2_PORT}/{self.POSTGRES_DB}"
         )
 
@@ -249,7 +314,7 @@ class Settings(BaseSettings):
     def redis_url(self) -> str:
         """Connection URL for Redis client."""
         if self.REDIS_PASSWORD:
-            return f"redis://:{self.REDIS_PASSWORD}@{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"
+            return f"redis://:{quote_plus(self.REDIS_PASSWORD)}@{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"
         return f"redis://{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"
 
     @property

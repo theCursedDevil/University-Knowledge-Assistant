@@ -8,7 +8,7 @@ from backend.tests.test_pipeline import generate_test_pdf
 
 def test_get_me_default_admin(client: TestClient):
     """GET /me returns default admin profile."""
-    resp = client.get("/me")
+    resp = client.get("/api/v1/me")
     assert resp.status_code == 200
     data = resp.json()
     assert data["role"] == "admin"
@@ -18,7 +18,7 @@ def test_get_me_default_admin(client: TestClient):
 
 def test_get_me_student_role(client: TestClient):
     """GET /me with student role header returns student profile."""
-    resp = client.get("/me", headers={"X-Dev-Role": "student", "X-Dev-Email": "student.test@university.edu"})
+    resp = client.get("/api/v1/me", headers={"X-Dev-Role": "student", "X-Dev-Email": "student.test@university.edu"})
     assert resp.status_code == 200
     data = resp.json()
     assert data["role"] == "student"
@@ -28,7 +28,7 @@ def test_get_me_student_role(client: TestClient):
 def test_auth_login_endpoint(client: TestClient):
     """POST /auth/login provisions user and returns bearer token."""
     resp = client.post(
-        "/auth/login",
+        "/api/v1/auth/login",
         json={"email": "prof.smith@university.edu", "role": "faculty", "name": "Professor Smith"},
     )
     assert resp.status_code == 200
@@ -41,13 +41,13 @@ def test_auth_login_endpoint(client: TestClient):
 
 def test_admin_stats_forbidden_for_student(client: TestClient):
     """GET /admin/stats returns 403 Forbidden for student."""
-    resp = client.get("/admin/stats", headers={"X-Dev-Role": "student"})
+    resp = client.get("/api/v1/admin/stats", headers={"X-Dev-Role": "student"})
     assert resp.status_code == 403
 
 
 def test_admin_stats_success_for_admin(client: TestClient):
     """GET /admin/stats returns aggregated metrics for admin."""
-    resp = client.get("/admin/stats", headers={"X-Dev-Role": "admin"})
+    resp = client.get("/api/v1/admin/stats", headers={"X-Dev-Role": "admin"})
     assert resp.status_code == 200
     data = resp.json()
     assert "total_documents" in data
@@ -63,20 +63,20 @@ def test_admin_users_list_and_role_update(client: TestClient):
     """GET /admin/users and PATCH /admin/users/{id}/role."""
     # 1. Login a new user to ensure record exists
     login_resp = client.post(
-        "/auth/login",
+        "/api/v1/auth/login",
         json={"email": "newbie@university.edu", "role": "student", "name": "Newbie Student"},
     )
     user_id = login_resp.json()["user"]["id"]
 
     # 2. List users
-    users_resp = client.get("/admin/users", headers={"X-Dev-Role": "admin"})
+    users_resp = client.get("/api/v1/admin/users", headers={"X-Dev-Role": "admin"})
     assert users_resp.status_code == 200
     users = users_resp.json()
     assert any(u["id"] == user_id for u in users)
 
     # 3. Update role to faculty
     patch_resp = client.patch(
-        f"/admin/users/{user_id}/role",
+        f"/api/v1/admin/users/{user_id}/role",
         headers={"X-Dev-Role": "admin"},
         json={"role": "faculty"},
     )
@@ -86,11 +86,11 @@ def test_admin_users_list_and_role_update(client: TestClient):
 
 def test_admin_self_demotion_rejected(client: TestClient):
     """Admin cannot remove own admin privileges."""
-    me_resp = client.get("/me", headers={"X-Dev-Role": "admin"})
+    me_resp = client.get("/api/v1/me", headers={"X-Dev-Role": "admin"})
     admin_id = me_resp.json()["id"]
 
     patch_resp = client.patch(
-        f"/admin/users/{admin_id}/role",
+        f"/api/v1/admin/users/{admin_id}/role",
         headers={"X-Dev-Role": "admin"},
         json={"role": "student"},
     )
@@ -104,7 +104,7 @@ def test_document_get_preview_and_metadata_update(client: TestClient):
 
     # 1. Upload
     upload_resp = client.post(
-        "/documents?auto_process=false",
+        "/api/v1/documents?auto_process=false",
         headers={"X-Dev-Role": "admin"},
         data={"category": "Handbook", "title": "Sample Handbook"},
         files={"file": (filename, io.BytesIO(pdf_bytes), "application/pdf")},
@@ -113,12 +113,12 @@ def test_document_get_preview_and_metadata_update(client: TestClient):
     doc_id = upload_resp.json()["id"]
 
     # 2. GET /documents/{id}
-    get_resp = client.get(f"/documents/{doc_id}")
+    get_resp = client.get(f"/api/v1/documents/{doc_id}")
     assert get_resp.status_code == 200
     assert get_resp.json()["title"] == "Sample Handbook"
 
     # 3. GET /documents/{id}/preview
-    preview_resp = client.get(f"/documents/{doc_id}/preview")
+    preview_resp = client.get(f"/api/v1/documents/{doc_id}/preview")
     assert preview_resp.status_code == 200
     preview_data = preview_resp.json()
     assert preview_data["page_count"] == 2
@@ -126,7 +126,7 @@ def test_document_get_preview_and_metadata_update(client: TestClient):
 
     # 4. PATCH /documents/{id} (Metadata editing - Requirement 16)
     patch_resp = client.patch(
-        f"/documents/{doc_id}",
+        f"/api/v1/documents/{doc_id}",
         headers={"X-Dev-Role": "admin"},
         json={"title": "Updated Handbook Title", "category": "Regulations"},
     )
@@ -137,7 +137,7 @@ def test_document_get_preview_and_metadata_update(client: TestClient):
 
     # 5. Non-admin PATCH rejected
     patch_forbidden = client.patch(
-        f"/documents/{doc_id}",
+        f"/api/v1/documents/{doc_id}",
         headers={"X-Dev-Role": "student"},
         json={"title": "Hacked Title"},
     )
@@ -148,7 +148,7 @@ def test_delete_conversation_endpoint(client: TestClient):
     """Test DELETE /conversations/{id} owner-only deletion."""
     # 1. Create conv as student
     create_resp = client.post(
-        "/conversations",
+        "/api/v1/conversations",
         headers={"X-Dev-Role": "student", "X-Dev-Email": "student1@university.edu"},
         json={"title": "Temporary Chat"},
     )
@@ -157,14 +157,14 @@ def test_delete_conversation_endpoint(client: TestClient):
 
     # 2. Other student cannot delete
     other_del = client.delete(
-        f"/conversations/{conv_id}",
+        f"/api/v1/conversations/{conv_id}",
         headers={"X-Dev-Role": "student", "X-Dev-Email": "other@university.edu"},
     )
     assert other_del.status_code == 403
 
     # 3. Owner can delete
     owner_del = client.delete(
-        f"/conversations/{conv_id}",
+        f"/api/v1/conversations/{conv_id}",
         headers={"X-Dev-Role": "student", "X-Dev-Email": "student1@university.edu"},
     )
     assert owner_del.status_code == 200
@@ -172,7 +172,7 @@ def test_delete_conversation_endpoint(client: TestClient):
 
     # 4. Verify 404
     get_after = client.get(
-        f"/conversations/{conv_id}",
+        f"/api/v1/conversations/{conv_id}",
         headers={"X-Dev-Role": "student", "X-Dev-Email": "student1@university.edu"},
     )
     assert get_after.status_code == 404

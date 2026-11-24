@@ -36,7 +36,7 @@ function CallbackContent() {
 
       // Verify CSRF state token
       const savedState = sessionStorage.getItem("uka_pkce_state");
-      if (savedState && state && savedState !== state) {
+      if (!savedState || !state || savedState !== state) {
         setStatus("error");
         setErrorMessage("Security verification failed: OAuth state mismatch (potential CSRF).");
         return;
@@ -53,9 +53,6 @@ function CallbackContent() {
       try {
         const redirectUri = `${window.location.origin}/auth/callback`;
         const result = await exchangeAuthCode(code, codeVerifier, redirectUri);
-        if (result.access_token) {
-          localStorage.setItem("uka_access_token", result.access_token);
-        }
 
         // Clean up ephemeral PKCE parameters from sessionStorage
         sessionStorage.removeItem("uka_pkce_verifier");

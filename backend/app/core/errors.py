@@ -166,7 +166,7 @@ class ExternalServiceError(AppException):
         details: Optional[Any] = None,
     ):
         super().__init__(
-            message=f"{service} service error: {message}",
+            message=f"{service} service is temporarily unavailable.",
             code="EXTERNAL_SERVICE_ERROR",
             status_code=502,
             details=details,

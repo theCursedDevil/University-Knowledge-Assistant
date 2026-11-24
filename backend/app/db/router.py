@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
 )
 from sqlalchemy import text
+from sqlalchemy.exc import DBAPIError, OperationalError
 
 try:
     import redis
@@ -258,7 +259,21 @@ class ReplicaRouter:
                 reason="read-your-own-writes",
             )
 
-        # 2. Round-Robin replica balancing
+        # 2. Opportunistically recover replicas marked unhealthy after a transient
+        # connection failure. Ordinary application/query errors must never poison health.
+        for name, engine in self.replica_engines.items():
+            if not self._replica_health.get(name, False):
+                try:
+                    async with asyncio.timeout(1.0):
+                        async with engine.connect() as connection:
+                            await connection.execute(text("SELECT 1"))
+                    self._replica_health[name] = True
+                    self._replica_last_error[name] = None
+                    logger.info("Read replica '%s' recovered and was returned to rotation.", name)
+                except Exception as probe_exc:
+                    self._replica_last_error[name] = str(probe_exc)
+
+        # 3. Round-Robin replica balancing
         async with self._lock:
             healthy_names = [
                 name for name in self._replica_names
@@ -299,15 +314,20 @@ class ReplicaRouter:
         async with target.sessionmaker() as session:
             try:
                 yield session
-            except Exception as exc:
-                if target.name in self._replica_health:
+            except DBAPIError as exc:
+                # Only connection-level failures should change replica health. A
+                # normal 404, validation error, or application exception must not
+                # disable an otherwise healthy replica.
+                if target.name in self._replica_health and (
+                    exc.connection_invalidated or isinstance(exc, OperationalError)
+                ):
                     logger.warning(
-                        "Read query failed on replica '%s': %s. Marking replica unhealthy.",
+                        "Database connection failed on replica '%s'; marking it unhealthy (%s).",
                         target.name,
-                        exc,
+                        type(exc).__name__,
                     )
                     self._replica_health[target.name] = False
-                    self._replica_last_error[target.name] = str(exc)
+                    self._replica_last_error[target.name] = type(exc).__name__
                 raise
             finally:
                 await session.close()
@@ -324,6 +344,7 @@ class ReplicaRouter:
             "primary": {"status": "unknown"},
             "replicas": {},
             "router": {
+                "replicas_enabled": settings.DB_READ_REPLICAS_ENABLED,
                 "total_replicas": len(self._replica_names),
                 "healthy_replicas": 0,
                 "fallback_to_primary": False,

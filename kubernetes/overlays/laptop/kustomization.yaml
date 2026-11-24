@@ -1,0 +1,65 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Single-node local demo overlay for an 8 GB Apple Silicon laptop.
+# It deliberately omits read replicas, HPA, Prometheus/Grafana, Ingress and
+# NetworkPolicies. The production/full manifests remain under kubernetes/.
+resources:
+  - ../../base/configmap.yaml
+  - pvc.yaml
+  - ../../postgres/postgres-primary.yaml
+  - ../../base/redis.yaml
+  - ../../base/qdrant.yaml
+  - ../../base/minio.yaml
+  - ../../base/keycloak.yaml
+  - ../../base/backend.yaml
+  - ../../base/frontend.yaml
+
+patches:
+  - path: patches/configmap.yaml
+    target:
+      version: v1
+      kind: ConfigMap
+      name: uka-config
+  - path: patches/backend.yaml
+    target:
+      group: apps
+      version: v1
+      kind: Deployment
+      name: backend
+  - path: patches/frontend.yaml
+    target:
+      group: apps
+      version: v1
+      kind: Deployment
+      name: frontend
+  - path: patches/keycloak.yaml
+    target:
+      group: apps
+      version: v1
+      kind: Deployment
+      name: keycloak
+  - path: patches/postgres-primary.yaml
+    target:
+      group: apps
+      version: v1
+      kind: Deployment
+      name: postgres-primary
+  - path: patches/redis.yaml
+    target:
+      group: apps
+      version: v1
+      kind: Deployment
+      name: redis
+  - path: patches/qdrant.yaml
+    target:
+      group: apps
+      version: v1
+      kind: Deployment
+      name: qdrant
+  - path: patches/minio.yaml
+    target:
+      group: apps
+      version: v1
+      kind: Deployment
+      name: minio

@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 from sqlalchemy.pool import NullPool, AsyncAdaptedQueuePool
+from sqlalchemy.exc import DBAPIError, OperationalError
 
 from backend.app.core.config import get_settings
 from backend.app.db.router import ReplicaRouter
@@ -22,7 +23,7 @@ settings = get_settings()
 
 # Engine connection pool selection
 # NullPool is used in testing/dev to ensure each coroutine owns its asyncpg connection
-pool_class = NullPool if settings.ENVIRONMENT in ("testing", "development") else AsyncAdaptedQueuePool
+pool_class = NullPool if settings.ENVIRONMENT == "testing" else AsyncAdaptedQueuePool
 
 engine_kwargs = {"echo": False, "poolclass": pool_class}
 if pool_class is AsyncAdaptedQueuePool:
@@ -34,17 +35,20 @@ primary_engine: AsyncEngine = create_async_engine(
     **engine_kwargs,
 )
 
-# 2. Read Replica 1 Engine (Read-Only)
-replica1_engine: AsyncEngine = create_async_engine(
-    settings.replica1_async_url,
-    **engine_kwargs,
-)
-
-# 3. Read Replica 2 Engine (Read-Only)
-replica2_engine: AsyncEngine = create_async_engine(
-    settings.replica2_async_url,
-    **engine_kwargs,
-)
+# 2. Read Replica Engines. Laptop/demo mode reuses the primary engine and does not
+# allocate extra connection pools for replicas that are not running.
+if settings.DB_READ_REPLICAS_ENABLED:
+    replica1_engine: AsyncEngine = create_async_engine(
+        settings.replica1_async_url,
+        **engine_kwargs,
+    )
+    replica2_engine: AsyncEngine = create_async_engine(
+        settings.replica2_async_url,
+        **engine_kwargs,
+    )
+else:
+    replica1_engine = primary_engine
+    replica2_engine = primary_engine
 
 # Engine alias for backward compatibility with Alembic and legacy callers
 engine: AsyncEngine = primary_engine
@@ -80,66 +84,35 @@ AsyncSessionLocal = PrimarySessionLocal
 # Instantiate multi-replica router singleton
 replica_router = ReplicaRouter(
     primary_engine=primary_engine,
-    replica_engines={
-        "replica_1": replica1_engine,
-        "replica_2": replica2_engine,
-    },
+    replica_engines=(
+        {
+            "replica_1": replica1_engine,
+            "replica_2": replica2_engine,
+        }
+        if settings.DB_READ_REPLICAS_ENABLED
+        else {}
+    ),
     primary_sessionmaker=PrimarySessionLocal,
-    replica_sessionmakers={
-        "replica_1": Replica1SessionLocal,
-        "replica_2": Replica2SessionLocal,
-    },
+    replica_sessionmakers=(
+        {
+            "replica_1": Replica1SessionLocal,
+            "replica_2": Replica2SessionLocal,
+        }
+        if settings.DB_READ_REPLICAS_ENABLED
+        else {}
+    ),
 )
 
 
 def resolve_user_id_from_request(request: Optional[Request]) -> Optional[str]:
-    """Extracts user identification from request state, headers, or token claims."""
+    """Resolve a user ID only from trusted state set by authenticated middleware."""
     if request is None:
         return None
-
-    # 1. State attached by auth dependency / middleware
     user_state = getattr(request.state, "user", None) or getattr(request.state, "current_user", None)
-    if user_state and hasattr(user_state, "id"):
+    if user_state and getattr(user_state, "id", None):
         return str(user_state.id)
-    if hasattr(request.state, "user_id") and request.state.user_id:
-        return str(request.state.user_id)
-
-    # 2. Development / explicit user ID header
-    dev_uid = request.headers.get("x-user-id") or request.headers.get("x-dev-user-id")
-    if dev_uid:
-        return dev_uid
-
-    # 3. Development email / role header
-    dev_email = request.headers.get("x-dev-email")
-    if dev_email:
-        return dev_email
-
-    # 4. Bearer token extraction
-    auth_header = request.headers.get("authorization")
-    if auth_header and auth_header.lower().startswith("bearer "):
-        token = auth_header[7:].strip()
-        if token.startswith("dev-token-"):
-            return token
-        try:
-            import jwt
-            payload = jwt.decode(token, options={"verify_signature": False})
-            return payload.get("sub") or payload.get("email")
-        except Exception:
-            pass
-
-    # 5. Cookie token extraction
-    cookie_token = request.cookies.get("uka_access_token")
-    if cookie_token:
-        if cookie_token.startswith("dev-token-"):
-            return cookie_token
-        try:
-            import jwt
-            payload = jwt.decode(cookie_token, options={"verify_signature": False})
-            return payload.get("sub") or payload.get("email")
-        except Exception:
-            pass
-
-    return None
+    user_id = getattr(request.state, "user_id", None)
+    return str(user_id) if user_id else None
 
 
 async def get_db(
@@ -185,10 +158,12 @@ async def get_read_db(
     async with target.sessionmaker() as session:
         try:
             yield session
-        except Exception as exc:
-            if target.name in replica_router._replica_health:
+        except DBAPIError as exc:
+            if target.name in replica_router._replica_health and (
+                exc.connection_invalidated or isinstance(exc, OperationalError)
+            ):
                 replica_router._replica_health[target.name] = False
-                replica_router._replica_last_error[target.name] = str(exc)
+                replica_router._replica_last_error[target.name] = type(exc).__name__
             raise
         finally:
             await session.close()

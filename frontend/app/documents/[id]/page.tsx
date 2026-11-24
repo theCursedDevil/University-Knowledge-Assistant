@@ -124,7 +124,7 @@ export default function DocumentPreviewPage() {
                 </h1>
               </div>
               <span className="text-[11px] text-zinc-400 font-mono hidden sm:inline">
-                {document.storage_path.split("/").pop()} · v{document.version} · Status: {document.status}
+                v{document.version} · Status: {document.status}
               </span>
             </div>
           </div>
@@ -220,7 +220,7 @@ export default function DocumentPreviewPage() {
                     Storage Location
                   </div>
                   <div className="font-mono text-[11px] text-zinc-800 dark:text-zinc-200 break-all">
-                    {document.storage_path}
+                    Stored securely in document storage
                   </div>
                 </div>
 

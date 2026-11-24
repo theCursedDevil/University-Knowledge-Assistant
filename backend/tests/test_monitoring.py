@@ -38,7 +38,7 @@ def test_metrics_endpoint_accessible(client: TestClient):
 def test_http_request_and_error_metrics_increment(client: TestClient):
     """Verifies that HTTP calls update request volume and error metrics."""
     # 1. Trigger successful request
-    resp_ok = client.get("/health")
+    resp_ok = client.get("/api/v1/health")
     assert resp_ok.status_code == 200
 
     # 2. Trigger 404 error request
@@ -50,7 +50,7 @@ def test_http_request_and_error_metrics_increment(client: TestClient):
     assert metrics_resp.status_code == 200
     metrics_text = metrics_resp.text
 
-    assert 'uka_http_requests_total{endpoint="/health",method="GET",status_code="200"}' in metrics_text
+    assert 'uka_http_requests_total{endpoint="/api/v1/health",method="GET",status_code="200"}' in metrics_text
     assert 'uka_http_errors_total{endpoint="/api/v1/definite-missing-route-test-404",method="GET",status_code="404"}' in metrics_text
 
 

@@ -109,7 +109,8 @@ export default function ProfilePage() {
               </div>
             </div>
 
-            {/* Quick Persona Switcher */}
+            {/* Demo persona switching is available only in explicitly opted-in development builds. */}
+            {process.env.NEXT_PUBLIC_DEV_LOGIN === "true" && (
             <div className="p-3 rounded-lg bg-zinc-50 dark:bg-zinc-800/60 border border-zinc-200 dark:border-zinc-700 text-left sm:text-right space-y-1">
               <span className="text-[10px] font-medium text-zinc-400 uppercase tracking-wider block">
                 Switch Identity (Demo)
@@ -130,6 +131,7 @@ export default function ProfilePage() {
                 ))}
               </div>
             </div>
+            )}
           </div>
 
           {/* Institutional Attributes */}

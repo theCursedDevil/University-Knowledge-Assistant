@@ -6,10 +6,11 @@ Endpoints:
 - PATCH /admin/users/{id}/role: Updates a user's role assignment (with self-demotion lockout guard).
 """
 
+import asyncio
 import uuid
 from datetime import datetime
-from typing import List, Dict, Any, Optional
-from fastapi import APIRouter, Depends, status, Response
+from typing import List, Dict, Any, Optional, Literal
+from fastapi import APIRouter, Depends, status, Response, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -74,7 +75,7 @@ class UserAdminResponse(BaseModel):
 class UpdateUserRoleRequest(BaseModel):
     """Request schema for updating a user's role."""
 
-    role: str = Field(..., description="Target role: student, faculty, or admin.")
+    role: Literal["student", "faculty", "admin"] = Field(..., description="Target role: student, faculty, or admin.")
 
 
 @router.get(
@@ -91,7 +92,7 @@ async def get_admin_stats(
 ) -> AdminStatsResponse:
     """Aggregates system statistics from PostgreSQL tables with Redis caching."""
     cache_key = cache_client.build_admin_stats_key()
-    cached = cache_client.get(cache_key)
+    cached = await asyncio.to_thread(cache_client.get, cache_key)
     if cached is not None:
         response.headers["X-Cache"] = "HIT"
         logger.debug("[CACHE] Hit for admin stats '%s'", cache_key)
@@ -142,7 +143,8 @@ async def get_admin_stats(
         documents_by_status=docs_by_status,
         recent_audit_logs=audit_logs,
     )
-    cache_client.set(
+    await asyncio.to_thread(
+        cache_client.set,
         cache_key,
         stats_resp.model_dump(mode="json"),
         ttl=settings.CACHE_ADMIN_STATS_TTL,
@@ -160,8 +162,8 @@ async def get_admin_stats(
 async def list_audit_logs(
     action: Optional[str] = None,
     entity: Optional[str] = None,
-    limit: int = 50,
-    offset: int = 0,
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
     current_user: User = Depends(require_admin),
     db: AsyncSession = Depends(get_read_db),
 ) -> List[AuditLogResponse]:
@@ -207,9 +209,7 @@ async def update_user_role(
     db: AsyncSession = Depends(get_db),
 ) -> UserAdminResponse:
     """Modifies a user's role while enforcing safety lockout policy."""
-    target_role = payload.role.lower()
-    if target_role not in ("student", "faculty", "admin"):
-        target_role = "student"
+    target_role = payload.role
 
     if current_user.id == id and current_user.role == "admin" and target_role != "admin":
         raise ForbiddenError("Safety policy: You cannot remove your own administrative privileges.")
@@ -219,6 +219,9 @@ async def update_user_role(
     user = res.scalar_one_or_none()
     if not user:
         raise NotFoundError(f"User with ID '{id}' not found.", details={"user_id": str(id)})
+
+    if user.role == "admin" and user.id != current_user.id and target_role != "admin":
+        raise ForbiddenError("Safety policy: Administrators cannot demote or modify other administrators.")
 
     old_role = user.role
     user.role = target_role
@@ -234,7 +237,7 @@ async def update_user_role(
     await db.commit()
     await db.refresh(user)
     replica_router.record_user_write(current_user.id)
-    cache_client.invalidate_admin_stats()
+    await asyncio.to_thread(cache_client.invalidate_admin_stats)
 
     logger.info("Updated role for user %s (%s -> %s)", user.id, old_role, target_role)
     return UserAdminResponse.model_validate(user)

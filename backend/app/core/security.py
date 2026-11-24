@@ -16,6 +16,7 @@ import jwt
 from jwt import PyJWKClient, PyJWTError, ExpiredSignatureError, InvalidIssuerError
 import httpx
 from fastapi import Request, Header, Depends
+from fastapi.security import OAuth2AuthorizationCodeBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -38,8 +39,11 @@ class KeycloakTokenValidator:
     def __init__(self, keycloak_url: str, realm: str):
         self.keycloak_url = keycloak_url.rstrip("/")
         self.realm = realm
-        self.issuer = f"{self.keycloak_url}/realms/{self.realm}"
-        self.jwks_uri = f"{self.issuer}/protocol/openid-connect/certs"
+        configured_issuer = settings.KEYCLOAK_ISSUER
+        self.issuer = (configured_issuer or f"{self.keycloak_url}/realms/{self.realm}").rstrip("/")
+        self.audience = settings.KEYCLOAK_AUDIENCE or settings.KEYCLOAK_CLIENT_ID
+        self.expected_client_id = settings.KEYCLOAK_CLIENT_ID
+        self.jwks_uri = f"{self.keycloak_url}/realms/{self.realm}/protocol/openid-connect/certs"
         self._jwks_client: Optional[PyJWKClient] = None
 
     @property
@@ -63,23 +67,25 @@ class KeycloakTokenValidator:
         """
         try:
             signing_key = self.jwks_client.get_signing_key_from_jwt(token)
-            valid_issuers = list({
-                self.issuer,
-                f"http://localhost:8080/realms/{self.realm}",
-                f"http://keycloak:8080/realms/{self.realm}",
-                f"http://127.0.0.1:8080/realms/{self.realm}",
-            })
             payload = jwt.decode(
                 token,
                 signing_key.key,
                 algorithms=["RS256"],
-                issuer=valid_issuers,
+                issuer=self.issuer,
+                audience=self.audience,
                 options={
                     "verify_signature": True,
                     "verify_exp": True,
                     "verify_iss": True,
+                    "verify_aud": True,
+                    "require": ["exp", "iss", "sub", "aud"],
                 },
             )
+            # Keycloak's authorized party identifies the client to which the token was issued.
+            if payload.get("azp") != self.expected_client_id:
+                raise UnauthorizedError("Token was not issued to this application.")
+            if not isinstance(payload.get("sub"), str) or not payload["sub"].strip():
+                raise UnauthorizedError("Token is missing a valid subject.")
             return payload
         except ExpiredSignatureError as exc:
             logger.warning("[AUTH] Token verification failed: signature expired.")
@@ -229,21 +235,32 @@ async def get_or_provision_user_from_claims(
     claims: Dict[str, Any],
 ) -> User:
     """Provisions or updates a user in PostgreSQL based on validated JWT claims."""
-    oauth_sub = claims["sub"]
-    email = claims.get("email") or f"{claims.get('preferred_username', oauth_sub)}@university.edu"
+    oauth_sub = claims.get("sub")
+    email = claims.get("email")
+    if not isinstance(oauth_sub, str) or not oauth_sub.strip():
+        raise UnauthorizedError("Identity provider token is missing a subject.")
+    if not isinstance(email, str) or not email.strip():
+        raise UnauthorizedError("Identity provider token is missing an email address.")
+    if claims.get("email_verified") is False:
+        raise UnauthorizedError("Verify your email address with the identity provider before signing in.")
+
+    email = email.strip().lower()
     name = claims.get("name") or claims.get("preferred_username") or email.split("@")[0]
     role = KeycloakTokenValidator.extract_role_from_claims(claims)
 
-    # 1. Look up by exact oauth_sub
+    # Bind identities only by immutable provider subject. Never silently attach a new
+    # provider identity to an existing account based on an email string.
     stmt = select(User).where(User.oauth_sub == oauth_sub)
     result = await db.execute(stmt)
     user = result.scalars().first()
 
-    # 2. If not found by oauth_sub, look up by email to link existing user record
     if not user:
-        stmt = select(User).where(User.email == email)
-        result = await db.execute(stmt)
-        user = result.scalars().first()
+        email_stmt = select(User).where(User.email == email)
+        email_result = await db.execute(email_stmt)
+        if email_result.scalars().first():
+            raise UnauthorizedError(
+                "An account with this email already exists under a different identity. Contact an administrator to link it."
+            )
 
     if not user:
         user = User(
@@ -260,9 +277,8 @@ async def get_or_provision_user_from_claims(
     else:
         # Update mutable claims if changed
         mutated = False
-        if user.role != role:
-            user.role = role
-            mutated = True
+        # Existing application roles are managed through the audited admin API.
+        # Do not overwrite an administrator's database change with an older token claim.
         if user.name != name:
             user.name = name
             mutated = True
@@ -276,86 +292,64 @@ async def get_or_provision_user_from_claims(
     return user
 
 
+oauth2_scheme = OAuth2AuthorizationCodeBearer(
+    authorizationUrl=f"{settings.KEYCLOAK_PUBLIC_URL}/realms/{settings.KEYCLOAK_REALM}/protocol/openid-connect/auth",
+    tokenUrl=f"{settings.KEYCLOAK_PUBLIC_URL}/realms/{settings.KEYCLOAK_REALM}/protocol/openid-connect/token",
+    scopes={
+        "openid": "OpenID Connect user identity",
+        "profile": "User profile information",
+        "email": "User email address",
+    },
+    auto_error=False,
+)
+
+
 async def get_current_user(
     request: Request,
+    token: Optional[str] = Depends(oauth2_scheme),
     authorization: Optional[str] = Header(
         default=None,
-        description="OAuth 2.0 Bearer access token.",
-    ),
-    x_dev_role: Optional[str] = Header(
-        default=None,
-        description="DEVELOPMENT ONLY: Mock role override for local tests.",
-    ),
-    x_dev_email: Optional[str] = Header(
-        default=None,
-        description="DEVELOPMENT ONLY: Mock email override for local tests.",
+        description="OAuth 2.0 Bearer access token. Prefer the httpOnly session cookie.",
     ),
     db: AsyncSession = Depends(get_db),
 ) -> User:
-    """Resolves and validates the authenticated user identity.
+    """Resolve a user exclusively from a validated Keycloak access token.
 
-    Checks:
-    1. Authorization: Bearer <token> header.
-    2. uka_access_token httpOnly cookie.
-    3. If token present:
-       - Validates Keycloak RS256 signature, exp, and iss.
-       - JIT provisions/updates user record in PostgreSQL.
-    4. If no token present:
-       - In testing/development mode, falls back to dev headers if provided.
-       - Otherwise raises HTTP 401 UnauthorizedError.
+    Development identities are intentionally not accepted by this production dependency.
+    Tests should use FastAPI dependency_overrides rather than mock headers or tokens.
     """
-    # 1. Authorization: Bearer <token>
-    user = None
-    if authorization and authorization.lower().startswith("bearer "):
+    raw_token: Optional[str] = None
+    if token:
+        raw_token = token
+    elif authorization and authorization.lower().startswith("bearer "):
         raw_token = authorization[7:].strip()
-        if raw_token.startswith("dev-token-"):
-            role = "admin"
-            if "student" in raw_token:
-                role = "student"
-            elif "faculty" in raw_token:
-                role = "faculty"
-            elif "admin" in raw_token:
-                role = "admin"
-            elif x_dev_role:
-                role = x_dev_role.lower()
-            user = await get_or_create_dev_user(db=db, role=role, email=x_dev_email)
-        else:
-            claims = token_validator.validate_token(raw_token)
-            user = await get_or_provision_user_from_claims(db=db, claims=claims)
+    elif request.cookies.get("uka_access_token"):
+        raw_token = request.cookies.get("uka_access_token")
 
-    # 2. Explicit dev override header in development/testing mode
-    elif settings.ENVIRONMENT in ("development", "testing") and (x_dev_role is not None or x_dev_email is not None):
-        target_role = x_dev_role.lower() if x_dev_role else "admin"
-        user = await get_or_create_dev_user(db=db, role=target_role, email=x_dev_email)
+    if not raw_token:
+        raise UnauthorizedError("Missing authentication token.")
 
-    # 3. Cookie-based authentication (uka_access_token httpOnly cookie)
-    elif "uka_access_token" in request.cookies:
-        cookie_token = request.cookies.get("uka_access_token")
-        if cookie_token.startswith("dev-token-"):
-            role = "admin"
-            if "student" in cookie_token:
-                role = "student"
-            elif "faculty" in cookie_token:
-                role = "faculty"
-            elif "admin" in cookie_token:
-                role = "admin"
-            user = await get_or_create_dev_user(db=db, role=role, email=x_dev_email)
-        else:
-            claims = token_validator.validate_token(cookie_token)
-            user = await get_or_provision_user_from_claims(db=db, claims=claims)
-
-    # 4. Default fallback in development/testing mode (e.g. GET /me without headers)
-    elif settings.ENVIRONMENT in ("development", "testing"):
-        user = await get_or_create_dev_user(db=db, role="admin", email=x_dev_email)
-
-    if user is not None:
+    # Local-only development identities are an explicit opt-in. Never accept these
+    # synthetic credentials in testing, staging, or production deployments.
+    if raw_token.startswith("dev-token-"):
+        if settings.ENVIRONMENT.lower() != "development" or not settings.ENABLE_DEV_AUTH:
+            raise UnauthorizedError("Development credentials are disabled.")
+        parts = raw_token.split("-")
+        if len(parts) < 3 or parts[2] not in ("student", "faculty", "admin"):
+            raise UnauthorizedError("Invalid development credentials.")
+        role = parts[2]
+        user = await get_or_create_dev_user(db=db, role=role)
         request.state.user = user
         request.state.current_user = user
         request.state.user_id = str(user.id)
         return user
 
-    # Missing credentials in non-dev environment
-    raise UnauthorizedError("Missing authentication token.")
+    claims = token_validator.validate_token(raw_token)
+    user = await get_or_provision_user_from_claims(db=db, claims=claims)
+    request.state.user = user
+    request.state.current_user = user
+    request.state.user_id = str(user.id)
+    return user
 
 
 async def require_admin(

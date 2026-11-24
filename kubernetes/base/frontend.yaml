@@ -32,13 +32,15 @@ spec:
             - name: HOSTNAME
               value: "0.0.0.0"
             - name: NEXT_PUBLIC_API_URL
-              value: "/api"
+              value: "https://uka.university.edu/api/v1"
             - name: NEXT_PUBLIC_KEYCLOAK_URL
-              value: "http://localhost:8080"
+              value: "https://uka.university.edu"
             - name: NEXT_PUBLIC_KEYCLOAK_REALM
               value: "university-realm"
             - name: NEXT_PUBLIC_KEYCLOAK_CLIENT_ID
               value: "university-assistant-client"
+            - name: NEXT_PUBLIC_DEV_LOGIN
+              value: "false"
           ports:
             - containerPort: 3000
               name: http

@@ -37,7 +37,7 @@ def test_user_profile_and_roles_array(client: TestClient):
     client.cookies.clear()
 
     # 1. Student
-    resp = client.get("/me", headers={"X-Dev-Role": "student", "X-Dev-Email": "student_test@university.edu"})
+    resp = client.get("/api/v1/me", headers={"X-Dev-Role": "student", "X-Dev-Email": "student_test@university.edu"})
     assert resp.status_code == 200
     data = resp.json()
     assert data["role"] == "student"
@@ -45,14 +45,14 @@ def test_user_profile_and_roles_array(client: TestClient):
     assert "student" in data["roles"]
 
     # 2. Faculty
-    resp = client.get("/me", headers={"X-Dev-Role": "faculty", "X-Dev-Email": "faculty_test@university.edu"})
+    resp = client.get("/api/v1/me", headers={"X-Dev-Role": "faculty", "X-Dev-Email": "faculty_test@university.edu"})
     assert resp.status_code == 200
     data = resp.json()
     assert data["role"] == "faculty"
     assert "faculty" in data["roles"]
 
     # 3. Admin
-    resp = client.get("/me", headers={"X-Dev-Role": "admin", "X-Dev-Email": "admin_test@university.edu"})
+    resp = client.get("/api/v1/me", headers={"X-Dev-Role": "admin", "X-Dev-Email": "admin_test@university.edu"})
     assert resp.status_code == 200
     data = resp.json()
     assert data["role"] == "admin"
@@ -65,7 +65,7 @@ def test_upload_role_restriction_validation(client: TestClient):
 
     # Invalid role_restriction rejected with 422
     resp = client.post(
-        "/documents",
+        "/api/v1/documents",
         files={"file": ("test_invalid.pdf", io.BytesIO(SAMPLE_PDF_BYTES), "application/pdf")},
         data={"category": "Academic", "title": "Invalid Role Doc", "role_restriction": "superadmin"},
         headers={"X-Dev-Role": "admin"},
@@ -74,7 +74,7 @@ def test_upload_role_restriction_validation(client: TestClient):
 
     # Valid role_restriction 'faculty' accepted
     resp = client.post(
-        "/documents",
+        "/api/v1/documents",
         files={"file": ("faculty_handbook.pdf", io.BytesIO(SAMPLE_PDF_BYTES), "application/pdf")},
         data={"category": "Regulations", "title": "Faculty Handbook", "role_restriction": "faculty"},
         headers={"X-Dev-Role": "admin"},
@@ -84,7 +84,7 @@ def test_upload_role_restriction_validation(client: TestClient):
     assert resp.json()["role_restriction"] == "faculty"
 
     # Clean up
-    client.delete(f"/documents/{doc_id}", headers={"X-Dev-Role": "admin"})
+    client.delete(f"/api/v1/documents/{doc_id}", headers={"X-Dev-Role": "admin"})
 
 
 def test_document_listing_role_visibility(client: TestClient):
@@ -93,7 +93,7 @@ def test_document_listing_role_visibility(client: TestClient):
 
     # 1. Upload 3 documents with different restrictions
     res_public = client.post(
-        "/documents",
+        "/api/v1/documents",
         files={"file": ("public_calendar.pdf", io.BytesIO(SAMPLE_PDF_BYTES), "application/pdf")},
         data={"category": "Academic", "title": "Public Academic Calendar", "role_restriction": "all"},
         headers={"X-Dev-Role": "admin"},
@@ -102,7 +102,7 @@ def test_document_listing_role_visibility(client: TestClient):
     public_id = res_public.json()["id"]
 
     res_faculty = client.post(
-        "/documents",
+        "/api/v1/documents",
         files={"file": ("faculty_payroll.pdf", io.BytesIO(SAMPLE_PDF_BYTES), "application/pdf")},
         data={"category": "Regulations", "title": "Faculty Appraisal Guidelines", "role_restriction": "faculty"},
         headers={"X-Dev-Role": "admin"},
@@ -111,7 +111,7 @@ def test_document_listing_role_visibility(client: TestClient):
     faculty_id = res_faculty.json()["id"]
 
     res_admin = client.post(
-        "/documents",
+        "/api/v1/documents",
         files={"file": ("admin_audit.pdf", io.BytesIO(SAMPLE_PDF_BYTES), "application/pdf")},
         data={"category": "General", "title": "Confidential Board Audit", "role_restriction": "admin"},
         headers={"X-Dev-Role": "admin"},
@@ -121,21 +121,21 @@ def test_document_listing_role_visibility(client: TestClient):
 
     try:
         # 2. Student lists documents
-        student_docs = client.get("/documents", headers={"X-Dev-Role": "student"}).json()
+        student_docs = client.get("/api/v1/documents", headers={"X-Dev-Role": "student"}).json()
         student_ids = [d["id"] for d in student_docs]
         assert public_id in student_ids, "Student should see public documents"
         assert faculty_id not in student_ids, "Student must NOT see faculty-restricted documents"
         assert admin_id not in student_ids, "Student must NOT see admin-restricted documents"
 
         # 3. Faculty lists documents
-        faculty_docs = client.get("/documents", headers={"X-Dev-Role": "faculty"}).json()
+        faculty_docs = client.get("/api/v1/documents", headers={"X-Dev-Role": "faculty"}).json()
         faculty_ids = [d["id"] for d in faculty_docs]
         assert public_id in faculty_ids, "Faculty should see public documents"
         assert faculty_id in faculty_ids, "Faculty should see faculty-restricted documents"
         assert admin_id not in faculty_ids, "Faculty must NOT see admin-restricted documents"
 
         # 4. Admin lists documents
-        admin_docs = client.get("/documents", headers={"X-Dev-Role": "admin"}).json()
+        admin_docs = client.get("/api/v1/documents", headers={"X-Dev-Role": "admin"}).json()
         admin_ids = [d["id"] for d in admin_docs]
         assert public_id in admin_ids, "Admin should see public documents"
         assert faculty_id in admin_ids, "Admin should see faculty documents"
@@ -144,7 +144,7 @@ def test_document_listing_role_visibility(client: TestClient):
     finally:
         # Clean up
         for did in (public_id, faculty_id, admin_id):
-            client.delete(f"/documents/{did}", headers={"X-Dev-Role": "admin"})
+            client.delete(f"/api/v1/documents/{did}", headers={"X-Dev-Role": "admin"})
 
 
 def test_document_direct_access_rbac(client: TestClient):
@@ -153,7 +153,7 @@ def test_document_direct_access_rbac(client: TestClient):
 
     # Upload a faculty-only document
     res_faculty = client.post(
-        "/documents",
+        "/api/v1/documents",
         files={"file": ("faculty_eval.pdf", io.BytesIO(SAMPLE_PDF_BYTES), "application/pdf")},
         data={"category": "Regulations", "title": "Faculty Evaluation Criteria", "role_restriction": "faculty"},
         headers={"X-Dev-Role": "admin"},
@@ -162,20 +162,20 @@ def test_document_direct_access_rbac(client: TestClient):
 
     try:
         # Student attempting to access faculty document directly -> 403 Forbidden
-        assert client.get(f"/documents/{faculty_id}", headers={"X-Dev-Role": "student"}).status_code == 403
-        assert client.get(f"/documents/{faculty_id}/preview", headers={"X-Dev-Role": "student"}).status_code == 403
-        assert client.get(f"/documents/{faculty_id}/chunks", headers={"X-Dev-Role": "student"}).status_code == 403
+        assert client.get(f"/api/v1/documents/{faculty_id}", headers={"X-Dev-Role": "student"}).status_code == 403
+        assert client.get(f"/api/v1/documents/{faculty_id}/preview", headers={"X-Dev-Role": "student"}).status_code == 403
+        assert client.get(f"/api/v1/documents/{faculty_id}/chunks", headers={"X-Dev-Role": "student"}).status_code == 403
 
         # Faculty accessing faculty document directly -> 200 OK
-        assert client.get(f"/documents/{faculty_id}", headers={"X-Dev-Role": "faculty"}).status_code == 200
-        assert client.get(f"/documents/{faculty_id}/preview", headers={"X-Dev-Role": "faculty"}).status_code == 200
-        assert client.get(f"/documents/{faculty_id}/chunks", headers={"X-Dev-Role": "faculty"}).status_code == 200
+        assert client.get(f"/api/v1/documents/{faculty_id}", headers={"X-Dev-Role": "faculty"}).status_code == 200
+        assert client.get(f"/api/v1/documents/{faculty_id}/preview", headers={"X-Dev-Role": "faculty"}).status_code == 200
+        assert client.get(f"/api/v1/documents/{faculty_id}/chunks", headers={"X-Dev-Role": "faculty"}).status_code == 200
 
         # Admin accessing faculty document directly -> 200 OK
-        assert client.get(f"/documents/{faculty_id}", headers={"X-Dev-Role": "admin"}).status_code == 200
+        assert client.get(f"/api/v1/documents/{faculty_id}", headers={"X-Dev-Role": "admin"}).status_code == 200
 
     finally:
-        client.delete(f"/documents/{faculty_id}", headers={"X-Dev-Role": "admin"})
+        client.delete(f"/api/v1/documents/{faculty_id}", headers={"X-Dev-Role": "admin"})
 
 
 def test_update_document_metadata_role_restriction(client: TestClient):
@@ -184,7 +184,7 @@ def test_update_document_metadata_role_restriction(client: TestClient):
 
     # 1. Create initially public document
     res = client.post(
-        "/documents",
+        "/api/v1/documents",
         files={"file": ("syllabus.pdf", io.BytesIO(SAMPLE_PDF_BYTES), "application/pdf")},
         data={"category": "Academic", "title": "Syllabus 2025"},
         headers={"X-Dev-Role": "admin"},
@@ -193,11 +193,11 @@ def test_update_document_metadata_role_restriction(client: TestClient):
 
     try:
         # Student can access initially
-        assert client.get(f"/documents/{doc_id}", headers={"X-Dev-Role": "student"}).status_code == 200
+        assert client.get(f"/api/v1/documents/{doc_id}", headers={"X-Dev-Role": "student"}).status_code == 200
 
         # 2. Admin restricts document to faculty only
         patch_res = client.patch(
-            f"/documents/{doc_id}",
+            f"/api/v1/documents/{doc_id}",
             json={"role_restriction": "faculty"},
             headers={"X-Dev-Role": "admin"},
         )
@@ -205,12 +205,12 @@ def test_update_document_metadata_role_restriction(client: TestClient):
         assert patch_res.json()["role_restriction"] == "faculty"
 
         # Student is now denied access
-        assert client.get(f"/documents/{doc_id}", headers={"X-Dev-Role": "student"}).status_code == 403
+        assert client.get(f"/api/v1/documents/{doc_id}", headers={"X-Dev-Role": "student"}).status_code == 403
         # Faculty has access
-        assert client.get(f"/documents/{doc_id}", headers={"X-Dev-Role": "faculty"}).status_code == 200
+        assert client.get(f"/api/v1/documents/{doc_id}", headers={"X-Dev-Role": "faculty"}).status_code == 200
 
     finally:
-        client.delete(f"/documents/{doc_id}", headers={"X-Dev-Role": "admin"})
+        client.delete(f"/api/v1/documents/{doc_id}", headers={"X-Dev-Role": "admin"})
 
 
 def test_vector_store_role_restriction_filtering():

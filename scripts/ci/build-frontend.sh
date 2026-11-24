@@ -15,7 +15,7 @@ echo "Running Frontend Production Build (next build)"
 echo "=================================================="
 
 # Set dummy/build-time environment variables for static optimization
-export NEXT_PUBLIC_API_URL="${NEXT_PUBLIC_API_URL:-http://localhost:8000}"
+export NEXT_PUBLIC_API_URL="${NEXT_PUBLIC_API_URL:-http://localhost:8000/api/v1}"
 export NEXT_PUBLIC_KEYCLOAK_URL="${NEXT_PUBLIC_KEYCLOAK_URL:-http://localhost:8080}"
 export NEXT_TELEMETRY_DISABLED=1
 

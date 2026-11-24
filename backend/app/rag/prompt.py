@@ -6,6 +6,7 @@ Mitigates prompt injection by treating retrieved document text strictly as data.
 """
 
 from typing import List, Dict, Optional, Tuple
+from html import escape as html_escape
 
 from backend.app.core.config import get_settings
 from backend.app.rag.vector_store import SearchResult
@@ -24,17 +25,12 @@ CRITICAL SECURITY AND OPERATIONAL DIRECTIVES:
 
 
 def escape_xml_boundaries(text: str) -> str:
-    """Escapes XML boundary tags to prevent structural breakout prompt injection attacks (NFR-SEC-008)."""
-    return (
-        text.replace("</retrieved_context>", "&lt;/retrieved_context&gt;")
-        .replace("<retrieved_context>", "&lt;retrieved_context&gt;")
-        .replace("</source>", "&lt;/source&gt;")
-        .replace("<source", "&lt;source")
-        .replace("</user_question>", "&lt;/user_question&gt;")
-        .replace("<user_question>", "&lt;user_question&gt;")
-        .replace("</conversation_history>", "&lt;/conversation_history&gt;")
-        .replace("<conversation_history>", "&lt;conversation_history&gt;")
-    )
+    """Escape all XML-sensitive characters in untrusted document/user text.
+
+    Escaping the entire value (rather than a case-sensitive list of tag names)
+    prevents both known and novel XML-like delimiters from changing prompt structure.
+    """
+    return html_escape(text, quote=True)
 
 
 def format_retrieved_context(chunks: List[SearchResult]) -> str:
@@ -44,11 +40,13 @@ def format_retrieved_context(chunks: List[SearchResult]) -> str:
 
     context_lines = ["<retrieved_context>"]
     for idx, chunk in enumerate(chunks, start=1):
-        page_attr = f' page="{chunk.page}"' if chunk.page is not None else ""
-        section_attr = f' section="{chunk.section}"' if chunk.section else ""
+        page_attr = f' page="{escape_xml_boundaries(str(chunk.page))}"' if chunk.page is not None else ""
+        section_attr = f' section="{escape_xml_boundaries(chunk.section)}"' if chunk.section else ""
         safe_text = escape_xml_boundaries(chunk.chunk_text.strip())
+        safe_chunk_id = escape_xml_boundaries(chunk.chunk_id)
+        safe_document_name = escape_xml_boundaries(chunk.document_name)
         context_lines.append(
-            f'<source index="{idx}" id="{chunk.chunk_id}" document="{chunk.document_name}"{page_attr}{section_attr}>\n'
+            f'<source index="{idx}" id="{safe_chunk_id}" document="{safe_document_name}"{page_attr}{section_attr}>\n'
             f"{safe_text}\n"
             f"</source>"
         )

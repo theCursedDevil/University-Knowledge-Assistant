@@ -16,6 +16,7 @@ Covers:
 """
 
 import io
+import os
 import sys
 import time
 import uuid
@@ -60,6 +61,9 @@ def fail_msg(msg: str) -> None:
 def main() -> int:
     header("CAPSTONE DEMONSTRATION: REDIS CACHING & DISTRIBUTED LOCKING (FR-CACHE)")
 
+    os.environ.setdefault("ENVIRONMENT", "development")
+    os.environ.setdefault("ENABLE_DEV_AUTH", "true")
+
     from starlette.testclient import TestClient
     from backend.app.main import create_app
     from backend.app.core.config import get_settings
@@ -71,8 +75,8 @@ def main() -> int:
     app = create_app()
     client = TestClient(app, base_url="http://testserver")
 
-    admin_headers = {"X-Dev-Role": "admin", "X-Dev-Email": "admin@university.edu"}
-    student_headers = {"X-Dev-Role": "student", "X-Dev-Email": "student@university.edu"}
+    admin_login = client.post("/api/v1/auth/login", json={"email": "demo.admin@university.edu", "role": "admin"})
+    assert admin_login.status_code == 200, admin_login.text
 
     # --------------------------------------------------------------------------
     # Step 0: Redis Healthcheck
@@ -105,7 +109,7 @@ def main() -> int:
 
     # 1.1 Cold Read (Cache MISS)
     t_start = time.perf_counter()
-    res1 = client.get("/documents", headers=student_headers)
+    res1 = client.get("/api/v1/documents")
     dur_miss = (time.perf_counter() - t_start) * 1000
 
     assert res1.status_code == 200, f"Expected 200, got {res1.status_code}"
@@ -119,7 +123,7 @@ def main() -> int:
 
     # 1.2 Warm Read (Cache HIT)
     t_start = time.perf_counter()
-    res2 = client.get("/documents", headers=student_headers)
+    res2 = client.get("/api/v1/documents")
     dur_hit = (time.perf_counter() - t_start) * 1000
 
     assert res2.status_code == 200
@@ -153,19 +157,18 @@ def main() -> int:
     subheader("Step 3: Automated Cache Invalidation on Document Mutation")
 
     # Warm list cache
-    res_w = client.get("/documents", headers=admin_headers)
+    res_w = client.get("/api/v1/documents")
     assert res_w.headers.get("X-Cache") in ("HIT", "MISS")
-    assert client.get("/documents", headers=admin_headers).headers.get("X-Cache") == "HIT"
+    assert client.get("/api/v1/documents").headers.get("X-Cache") == "HIT"
     pass_msg("Document list cache warmed (X-Cache: HIT)")
 
     # Upload new circular
     pdf_bytes = b"%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF"
     upload_res = client.post(
-        "/documents",
+        "/api/v1/documents",
         data={"title": "Redis Cache Invalidation Circular 2026", "category": "Academic", "role_restriction": "all"},
         files={"file": ("invalidation_circular.pdf", io.BytesIO(pdf_bytes), "application/pdf")},
         params={"auto_process": False},
-        headers=admin_headers,
     )
     assert upload_res.status_code == 201
     created_doc = upload_res.json()
@@ -173,7 +176,7 @@ def main() -> int:
     pass_msg(f"Uploaded new document: id={created_id} title='{created_doc['title']}'")
 
     # Immediate read after upload
-    res_after_upload = client.get("/documents", headers=admin_headers)
+    res_after_upload = client.get("/api/v1/documents")
     x_cache_after = res_after_upload.headers.get("X-Cache")
     db_route_after = res_after_upload.headers.get("X-Database-Route")
     info_msg(f"Read after upload: X-Cache = {x_cache_after} | DB-Route = {db_route_after}")
@@ -238,15 +241,14 @@ def main() -> int:
     with distributed_lock(f"document:{created_id}", expire_seconds=15.0):
         # Admin attempts to trigger processing concurrently
         process_res = client.post(
-            f"/documents/{created_id}/process",
-            headers=admin_headers,
+            f"/api/v1/documents/{created_id}/process"
         )
         assert process_res.status_code == 409
         err = process_res.json()["error"]
         pass_msg(f"Concurrent pipeline run rejected with 409 Conflict: code={err['code']} msg='{err['message']}'")
 
     # Clean up uploaded test document
-    client.delete(f"/documents/{created_id}", headers=admin_headers)
+    client.delete(f"/api/v1/documents/{created_id}")
     pass_msg(f"Cleaned up test document '{created_id}'")
 
     # --------------------------------------------------------------------------

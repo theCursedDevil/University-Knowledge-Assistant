@@ -55,6 +55,7 @@
         "clientId": "${env.GOOGLE_CLIENT_ID:placeholder-google-client-id}",
         "clientSecret": "${env.GOOGLE_CLIENT_SECRET:placeholder-google-client-secret}",
         "defaultScope": "openid profile email",
+        "prompt": "select_account",
         "syncMode": "IMPORT",
         "useUserinfoEndpoint": "true"
       }
@@ -68,13 +69,17 @@
       "enabled": true,
       "clientAuthenticatorType": "client-secret",
       "redirectUris": [
-        "http://localhost:3000/*",
-        "http://127.0.0.1:3000/*",
-        "http://localhost:8000/*",
-        "http://127.0.0.1:8000/*"
+        "http://localhost:3000/auth/callback",
+        "http://127.0.0.1:3000/auth/callback",
+        "http://localhost:8000/docs/oauth2-redirect",
+        "https://oauth.pstmn.io/v1/callback",
+        "https://uka.university.edu/auth/callback"
       ],
       "webOrigins": [
-        "*"
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:8000",
+        "https://uka.university.edu"
       ],
       "publicClient": true,
       "protocol": "openid-connect",
@@ -82,77 +87,48 @@
       "implicitFlowEnabled": false,
       "directAccessGrantsEnabled": true,
       "serviceAccountsEnabled": false,
-      "fullScopeAllowed": true,
+      "fullScopeAllowed": false,
       "attributes": {
         "pkce.code.challenge.method": "S256",
-        "post.logout.redirect.uris": "http://localhost:3000/*##http://localhost:8000/*"
+        "post.logout.redirect.uris": "http://localhost:3000/*##https://uka.university.edu/*"
       },
       "defaultClientScopes": [
+        "basic",
         "web-origins",
         "acr",
         "roles",
         "profile",
         "email"
+      ],
+      "protocolMappers": [
+        {
+          "name": "university-assistant-client-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.client.audience": "university-assistant-client",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "false"
+          }
+        },
+        {
+          "name": "email-verified",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-property-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "emailVerified",
+            "claim.name": "email_verified",
+            "jsonType.label": "boolean",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        }
       ]
     }
   ],
-  "users": [
-    {
-      "id": "user-admin-uuid-001",
-      "username": "admin",
-      "email": "admin@university.edu",
-      "firstName": "System",
-      "lastName": "Admin",
-      "enabled": true,
-      "emailVerified": true,
-      "credentials": [
-        {
-          "type": "password",
-          "value": "AdminPassword123!",
-          "temporary": false
-        }
-      ],
-      "realmRoles": [
-        "admin"
-      ]
-    },
-    {
-      "id": "user-faculty-uuid-002",
-      "username": "faculty",
-      "email": "faculty@university.edu",
-      "firstName": "Prof",
-      "lastName": "Sharma",
-      "enabled": true,
-      "emailVerified": true,
-      "credentials": [
-        {
-          "type": "password",
-          "value": "FacultyPassword123!",
-          "temporary": false
-        }
-      ],
-      "realmRoles": [
-        "faculty"
-      ]
-    },
-    {
-      "id": "user-student-uuid-003",
-      "username": "student",
-      "email": "student@university.edu",
-      "firstName": "Aashu",
-      "lastName": "Kumar",
-      "enabled": true,
-      "emailVerified": true,
-      "credentials": [
-        {
-          "type": "password",
-          "value": "StudentPassword123!",
-          "temporary": false
-        }
-      ],
-      "realmRoles": [
-        "student"
-      ]
-    }
-  ]
+  "verifyEmail": false
 }

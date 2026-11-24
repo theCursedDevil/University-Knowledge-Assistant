@@ -20,6 +20,7 @@ class EmbeddingClient:
         self.dimension = 384
         self._model = None
         self._lock = threading.Lock()
+        self._encode_lock = threading.Lock()
 
     @property
     def model(self):
@@ -29,6 +30,17 @@ class EmbeddingClient:
                 if self._model is None:
                     try:
                         from sentence_transformers import SentenceTransformer
+                        import torch
+
+                        # Keep CPU inference predictable on memory-constrained laptops and
+                        # small Kubernetes nodes. Environment variables in the containers
+                        # reinforce these limits for BLAS/tokenizer worker pools.
+                        torch.set_num_threads(settings.EMBEDDING_NUM_THREADS)
+                        try:
+                            torch.set_num_interop_threads(1)
+                        except RuntimeError:
+                            # PyTorch only allows this before parallel work starts.
+                            pass
 
                         logger.info("Loading SentenceTransformer model '%s' on CPU...", self.model_name)
                         self._model = SentenceTransformer(self.model_name, device="cpu")
@@ -38,19 +50,23 @@ class EmbeddingClient:
                         raise ExternalServiceError("EmbeddingModel", f"Model load failure: {exc}")
         return self._model
 
-    def embed_texts(self, texts: List[str], batch_size: int = 32) -> List[List[float]]:
-        """Encodes a batch of chunk texts into 384-dimensional normalized embedding vectors."""
+    def embed_texts(self, texts: List[str], batch_size: Optional[int] = None) -> List[List[float]]:
+        """Encodes a bounded batch of texts into normalized 384-dimensional vectors."""
         if not texts:
             return []
 
+        effective_batch_size = max(1, min(batch_size or settings.EMBEDDING_BATCH_SIZE, 32))
         try:
-            embeddings = self.model.encode(
-                texts,
-                batch_size=batch_size,
-                show_progress_bar=False,
-                normalize_embeddings=True,
-                convert_to_numpy=True,
-            )
+            # Serialize model inference within this backend process so concurrent chat
+            # requests cannot multiply CPU/RAM use on a small laptop.
+            with self._encode_lock:
+                embeddings = self.model.encode(
+                    texts,
+                    batch_size=effective_batch_size,
+                    show_progress_bar=False,
+                    normalize_embeddings=True,
+                    convert_to_numpy=True,
+                )
             return embeddings.tolist()
         except Exception as exc:
             logger.error("Embedding generation failed for %d texts: %s", len(texts), exc)

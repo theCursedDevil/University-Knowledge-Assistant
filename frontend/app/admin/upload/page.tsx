@@ -212,9 +212,25 @@ export default function DocumentUploadPage() {
           /* Upload Form */
           <form onSubmit={handleUpload} className="space-y-6">
             {error && (
-              <div className="p-3.5 rounded-lg bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 flex items-center gap-2 text-xs text-red-700 dark:text-red-400">
-                <AlertTriangle className="w-4 h-4 shrink-0" />
-                <span>{error}</span>
+              <div className="p-3.5 rounded-lg bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 flex items-center justify-between gap-3 text-xs text-red-700 dark:text-red-400">
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 shrink-0" />
+                  <span>
+                    {error.toLowerCase().includes("authentication is required")
+                      ? "Your session has expired. Authentication is required to ingest documents."
+                      : error}
+                  </span>
+                </div>
+                {(error.toLowerCase().includes("authentication") ||
+                  error.toLowerCase().includes("session") ||
+                  error.toLowerCase().includes("unauthorized")) && (
+                  <Link
+                    href="/login"
+                    className="shrink-0 px-2.5 py-1 rounded bg-red-100 hover:bg-red-200 dark:bg-red-900/50 dark:hover:bg-red-900 text-red-800 dark:text-red-200 font-semibold transition cursor-pointer"
+                  >
+                    Sign In Again
+                  </Link>
+                )}
               </div>
             )}
 

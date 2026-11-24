@@ -1,323 +1,298 @@
 # Generative AI-Based University Knowledge Assistant
 
-[![CI/CD Quality Gates](https://github.com/theCursedDevil/University-Knowledge-Assistant/actions/workflows/pr-check.yml/badge.svg)](https://github.com/theCursedDevil/University-Knowledge-Assistant/actions)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/)
-[![Next.js 14](https://img.shields.io/badge/Next.js-14+-black.svg)](https://nextjs.org/)
-[![PostgreSQL 16](https://img.shields.io/badge/PostgreSQL-16%20(1%20Primary%20%2B%202%20Replicas)-blue.svg)](https://www.postgresql.org/)
-[![Qdrant](https://img.shields.io/badge/Qdrant-Vector%20DB-red.svg)](https://qdrant.tech/)
-[![Keycloak 24](https://img.shields.io/badge/Keycloak-24.0.5%20(OIDC%20%2B%20PKCE)-orange.svg)](https://www.keycloak.org/)
-[![Docker Compose](https://img.shields.io/badge/Docker%20Compose-11%20Services-2496ED.svg)](docker-compose.yml)
-[![Kubernetes](https://img.shields.io/badge/Kubernetes-HPA%20%2B%20Ingress-326CE5.svg)](kubernetes/)
+A university-document question-answering application built around Retrieval-Augmented Generation (RAG). Administrators can upload university PDFs; the backend extracts and indexes their content; signed-in users can ask questions and receive answers with source citations, subject to document-role restrictions.
 
----
+This repository contains the Next.js frontend, FastAPI backend, database migrations, Docker Compose stack, Kubernetes manifests, monitoring configuration, and verification scripts.
 
-## 1. Project Overview & Problem Statement
+> **Recommended for an 8 GB Apple Silicon Mac:** use the default Docker Compose profile for the everyday demo, or `kubernetes/overlays/laptop` for a local Kubernetes demonstration. Do not run both stacks at the same time on the laptop.
 
-### The Problem
-Universities publish hundreds of notices, circulars, syllabi, fee structures, examination regulations, and hostel guidelines across disconnected department websites, PDF bulletins, and physical notice boards. Students and faculty frequently face:
-1. **Information fragmentation:** Difficulty locating the single authoritative source of truth.
-2. **Hallucination risk in standard AI chatbots:** Generic LLMs invent policies or quote stale regulations.
-3. **Lack of provenance:** Answers lack verifiable citations to the exact official document and page number.
-4. **Access control violations:** Sensitive faculty deliberations or fee concession criteria are improperly exposed.
+## Contents
 
-### The Solution: University Knowledge Assistant
-The **University Knowledge Assistant** is an enterprise-grade, retrieval-augmented generative AI web platform that centralizes institutional knowledge. It enables students and faculty to ask conversational questions (e.g., *"What is the minimum attendance percentage to appear in semester exams?"*) and receive accurate, streamed answers backed by **deterministic, clickable source citations** (linking to document title, 1-indexed page number, and policy section).
+- [Features](#features)
+- [How the RAG pipeline works](#how-the-rag-pipeline-works)
+- [Technology stack](#technology-stack)
+- [Requirements](#requirements)
+- [Quick start with Docker Compose](#quick-start-with-docker-compose)
+- [Run the lightweight Kubernetes profile](#run-the-lightweight-kubernetes-profile)
+- [Optional replication and monitoring](#optional-replication-and-monitoring)
+- [Useful URLs and commands](#useful-urls-and-commands)
+- [Repository structure](#repository-structure)
+- [Security and deployment notes](#security-and-deployment-notes)
+- [More documentation](#more-documentation)
 
----
+## Features
 
-## 2. Key Capabilities & Graded Demonstrations
+- PDF upload and document processing for the university knowledge base.
+- RAG-based question answering using retrieved document passages.
+- Source citations attached to generated answers.
+- Role-aware document access for student, faculty, and administrator roles.
+- Conversation history and user-specific conversation access.
+- Keycloak-based OpenID Connect sign-in, with Google identity-provider federation configurable in the imported realm.
+- Administrative pages for document and user management, plus analytics/metadata views.
+- PostgreSQL persistence, Redis caching/distributed locks, and MinIO object storage.
+- Qdrant vector search, Prometheus metrics, and provisioned Grafana dashboards.
+- Docker Compose and Kubernetes deployment definitions, including a reduced-resource laptop profile.
 
-- **Retrieval-Augmented Generation (RAG):** Context-injected question answering with confidence-score thresholding ($0.40$), lexical score boosting, and hallucination fallback guards.
-- **Deterministic Citation Engine:** Citations are extracted directly from PostgreSQL chunk metadata mapped to Qdrant vector IDs—never fabricated by the LLM.
-- **Conversational Interface:** Multi-turn dialogue, context window memory (last 6 messages), and token-by-token streaming via Server-Sent Events (SSE).
-- **OAuth 2.0 / OIDC Authentication:** Standards-compliant identity management via self-hosted Keycloak 24, supporting Authorization Code Flow with PKCE, Google Identity Provider federation, and Role-Based Access Control (RBAC: `student`, `faculty`, `admin`).
-- **Multi-Replica Database Synchronization:** PostgreSQL 16 primary with two physical streaming read replicas. Features replication lag monitoring (`POSTGRES_REPLICATION_LAG_BYTES`), session-aware read-your-own-writes consistency routing, and optimistic locking concurrency control (`HTTP 409 Conflict`).
-- **Containerization & Orchestration:** Complete Docker Compose stack (11 containers) and declarative Kubernetes manifests (Deployments, StatefulSet, Ingress, Horizontal Pod Autoscaler).
-- **Automated CI/CD Quality Gates:** GitHub Actions pipelines enforcing Ruff linting, frontend static builds, and automated pytest execution on all Pull Requests.
-- **Rigorous Git & JIRA Workflow:** Professional Conventional Commits and feature-branching linked to JIRA issue tickets (`UKA-1` through `UKA-51`).
+Google sign-in requires real Google OAuth credentials. The repository's local Keycloak realm contains the Google identity-provider configuration and the local callback URL; configure the corresponding credentials in `.env` before testing Google login.
 
----
+## How the RAG pipeline works
 
-## 3. System Architecture
+1. An authorized administrator uploads a PDF through the frontend.
+2. The original file is stored in MinIO and its metadata/status is recorded in PostgreSQL.
+3. The backend extracts PDF text, splits it into chunks, and creates embeddings using `sentence-transformers/all-MiniLM-L6-v2`.
+4. Embeddings and chunk payloads are indexed in Qdrant; chunk metadata and document access restrictions are stored in PostgreSQL.
+5. When a user asks a question, the backend retrieves eligible chunks, builds a grounded prompt, and requests an answer from the configured LLM provider.
+6. The response includes citations to the retrieved document passages. Access filtering is applied so users only retrieve documents permitted for their role.
 
-The application strictly follows a **Modular Layered Architecture with a Single Backend Application** (no microservices):
+The local profile runs the embedding model on the CPU. It does **not** run a generative LLM locally: with `GROQ_API_KEY` configured, completion requests are sent to Groq. Without a configured Groq key, the code uses a deterministic mock response intended for offline wiring/demo checks, not real AI answers.
 
-```
-Client Tier               Application Tier               AI / RAG Pipeline         Storage & Persistence
-───────────               ────────────────               ─────────────────         ─────────────────────
-Browser ───────────────▶ Frontend (Next.js 14)          RAG Engine (LangChain)     PostgreSQL 16 Primary (RW)
-(Student/Faculty/Admin)   │ App Router + Tailwind        │                          ├── Read Replica 1 (RO)
-                          │                              ├── Doc Processing         └── Read Replica 2 (RO)
-Keycloak IdP ───────────▶ │ Keycloak OIDC                │   (Extract/Clean/Chunk)
-(OAuth 2.0 + PKCE)        ▼                              │                         Qdrant (Vector DB)
-                        Backend API (FastAPI)            ├── Embedding Model        └── 384d Cosine Index
-                         /auth /chat /conversations      │   (all-MiniLM-L6-v2)
-                         /documents /admin               │                         MinIO (S3 Object Storage)
-                                                         └── LLM API                └── Raw PDF documents
-                                                             (Groq / Gemini)
-                                                                                   Redis 7 (RAM)
-                                                                                    └── Caching & Locks
-```
+## Technology stack
 
----
+| Layer | Technology |
+|---|---|
+| Frontend | Next.js 14, React 18, TypeScript, Tailwind CSS |
+| Backend API | Python 3.12, FastAPI, Uvicorn |
+| Relational database | PostgreSQL 16, SQLAlchemy, Alembic |
+| Vector database | Qdrant |
+| Embeddings | Sentence Transformers — `all-MiniLM-L6-v2` (384 dimensions) |
+| LLM provider | Groq API (remote) |
+| Object storage | MinIO |
+| Cache and distributed locks | Redis |
+| Identity provider | Keycloak / OpenID Connect; Google federation configurable |
+| Monitoring | Prometheus and Grafana (optional local profile) |
+| Deployment | Docker Compose and Kubernetes/Kustomize |
 
-## 4. Technology Stack
+## Requirements
 
-| Layer | Chosen Technology | Exact Version / Specification | Rationale |
-|---|---|---|---|
-| **Frontend Framework** | **Next.js** | Next.js 14+ (React 18, App Router, TypeScript) | Server-Side Rendering (SSR), built-in routing, first-class streaming support, robust standard OAuth PKCE client. |
-| **Frontend Styling** | **Tailwind CSS** | Tailwind CSS v3 + Lucide React | Clean, utility-first styling matching Wireframe Models W-01 through W-13. |
-| **Backend Framework** | **FastAPI** | FastAPI 0.111+ (Python 3.12+) | Async native, high-throughput, auto-generated OpenAPI documentation, strict Pydantic v2 data validation. |
-| **Database ORM & Driver** | **SQLAlchemy + asyncpg** | SQLAlchemy 2.0 (Async Engine) + `asyncpg` | Production-grade async PostgreSQL connectivity; native support for read/write session routing and connection pooling. |
-| **Database Migrations** | **Alembic** | Alembic 1.13+ | Version-controlled, reproducible database schema migrations. |
-| **RAG Orchestration** | **LangChain** | `langchain` + `langchain-core` | Standardized retriever abstractions, text splitters, and prompt management. |
-| **Embedding Model** | **Sentence Transformers** | `sentence-transformers/all-MiniLM-L6-v2` | Runs locally on CPU (~120MB memory, 384 dimensions, zero API cost, fast cosine similarity calculation). |
-| **Large Language Model** | **Groq API / Gemini** | `llama-3.1-8b-instant` via Groq & `gemini-1.5-flash` | Sub-second time-to-first-token (<400ms), >300 tokens/sec streaming, strict context boundaries, generous free tier. |
-| **Vector Database** | **Qdrant** | Qdrant v1.10+ (Docker image `qdrant/qdrant:latest`) | Open-source, single container footprint, native cosine distance index, fast metadata payload filtering (`category`, `role_restriction`). |
-| **Relational Database** | **PostgreSQL** | PostgreSQL 16 (1 Primary + 2 Read Replicas) | Physical streaming replication via WAL slots for multi-node database synchronization demonstration. |
-| **Object Storage** | **MinIO** | MinIO (Docker image `cgr.dev/chainguard/minio`) | S3-compliant object storage for raw uploaded PDFs; enables original file preview in Wireframe W-08. |
-| **Cache & Distributed Lock** | **Redis** | Redis 7 (Docker image `redis:7-alpine`) | In-memory key-value store for distributed locking, read-after-write session window tracking, and query caching. |
-| **Identity Provider** | **Keycloak** | Keycloak 24+ (Docker image `quay.io/keycloak/keycloak:24.0.5`) | Standards-compliant OAuth 2.0 / OIDC provider; controls realm roles (`student`, `faculty`, `admin`) and Google IdP federation. |
-| **Monitoring & Metrics** | **Prometheus + Grafana** | Prometheus v2.51 + Grafana v10.4 | Telemetry collection for API latency, request error rates, LLM calls, and live PostgreSQL replication lag in bytes. |
-| **Containerization** | **Docker & Docker Compose** | Docker 26+, Compose v2 (11 services) | Standard multi-stage containerization defining all 11 services for unified local development. |
-| **Container Orchestration** | **Kubernetes** | Minikube / Kind (Kubernetes v1.28+) | StatefulSet for PostgreSQL replication, Deployments for stateless services, ConfigMaps, Secrets, HPA, and NGINX Ingress. |
-| **CI/CD Automation** | **GitHub Actions** | GitHub-hosted runner (`ubuntu-latest`) | Automated linting, pytest backend suite, Next.js build verification, and multi-service test orchestration on PRs. |
+For the recommended local Docker workflow:
 
----
+- Apple Silicon Mac (the lightweight settings are designed with an 8 GB M2 Air in mind).
+- Docker Desktop with Docker Compose v2.
+- Internet access for the initial image builds and embedding-model download.
+- A Groq API key for real LLM-generated answers.
+- Google OAuth client credentials only when demonstrating Google sign-in.
 
-## 5. Repository Structure
+For Kubernetes, enable the Kubernetes feature in Docker Desktop and ensure `kubectl` is available. The laptop overlay uses local container images and a single-node local cluster.
 
-```
-University-Knowledge-Assistant/
-├── frontend/                          # Next.js 14 web application
-│   ├── app/                           # App Router (pages: /, /chat, /documents, /admin, /profile)
-│   ├── components/                    # UI Components (ChatView, CitationPanel, DocumentViewer)
-│   ├── lib/                           # API client, SSE consumer, auth helpers
-│   └── package.json
-├── backend/                           # Single FastAPI backend application
-│   ├── app/
-│   │   ├── api/                       # API Routers (/auth, /chat, /documents, /admin, /metrics)
-│   │   ├── core/                      # Config (pydantic-settings), security (JWKS), logging, metrics
-│   │   ├── db/                        # SQLAlchemy models, session, ReplicaRouter, repositories
-│   │   ├── rag/                       # Extractor, chunker, embeddings, vector_store, prompt, reranker
-│   │   ├── services/                  # Business services (Auth, Document, Conversation, Admin, RAG)
-│   │   └── main.py                    # App factory & middleware
-│   ├── tests/                         # Unit, integration, and E2E verification tests (pytest)
-│   └── requirements.txt               # Backend dependencies
-├── database/                          # Relational database assets
-│   ├── migrations/                    # Alembic migration scripts
-│   └── init-replication.sql          # PostgreSQL primary & replica replication configuration
-├── docker/                            # Container build assets & Keycloak realm imports
-│   ├── backend.Dockerfile             # Multi-stage Python 3.12 build
-│   ├── frontend.Dockerfile            # Multi-stage Node 20 build
-│   └── keycloak/                      # Keycloak realm seed configuration
-├── kubernetes/                        # Declarative Kubernetes resources
-│   ├── base/                          # Deployments, Services, ConfigMaps, Secrets, PVCs, HPA
-│   ├── postgres/                      # StatefulSet + replication service
-│   └── ingress.yaml                   # NGINX Ingress rules
-├── .github/
-│   └── workflows/
-│       ├── pr-check.yml               # PR quality gate workflow (lint + tests + build)
-│       └── main-deploy.yml            # Main branch deployment workflow
-├── docs/                              # Project documentation
-│   ├── architecture.md                # System architecture specification
-│   ├── technology-decisions.md        # Concrete technology selection and rationale
-│   ├── database-design.md             # Relational schema, replication & indexing strategy
-│   ├── api-documentation.md           # REST API specification & request/response schemas
-│   ├── deployment-guide.md            # Docker Compose, Kubernetes & native run instructions
-│   ├── testing-report.md              # Master QA report across all 5 verification tiers
-│   ├── jira-git-summary.md            # JIRA Epics, commit history, and PR log
-│   ├── demo-script.md                 # Live university evaluation presentation walkthrough
-│   ├── known-limitations.md           # Engineering boundaries & academic appraisal
-│   └── verification-report.md         # 34/34 E2E user journey audit evidence
-├── scripts/
-│   ├── ci/                            # CI execution scripts (lint-backend, test-backend, build-frontend)
-│   ├── demo/                          # Automated E2E verification runner (`verify_e2e_journey.py`)
-│   └── deploy/                        # Kubernetes rolling update and rollback automation
-├── docker-compose.yml                 # 11-container full-stack orchestration
-├── .env.example                       # Documented environment variables template
-├── AGENTS.md                          # Permanent development instructions & rules
-└── README.md                          # This file
-```
+## Quick start with Docker Compose
 
----
+Run these commands from the repository root.
 
-## 6. Quickstart Guide (Local Development)
+### 1. Configure environment variables
 
-### 6.1 Full-Stack Container Development (Docker Compose)
-Launch and manage the entire 11-container topology:
 ```bash
-# 1. Clone repository and copy configuration
-git clone https://github.com/theCursedDevil/University-Knowledge-Assistant.git
-cd University-Knowledge-Assistant
 cp .env.example .env
+```
 
-# 2. Add your Groq API key in .env (or Gemini API key)
-# GROQ_API_KEY=gsk_...
+Open `.env` and replace **every** `CHANGE_ME...` placeholder with a separate, unique secret. You can generate a random value with:
 
-# 3. Build and launch all 11 services in the background
-docker compose up --build -d
+```bash
+openssl rand -hex 32
+```
 
-# 4. Verify stack health and port mappings
+Use a newly generated value for each secret; do not reuse one secret for multiple services. Keep `.env` private and never commit it to Git. Set `GROQ_API_KEY` to your Groq API key for actual LLM answers. Set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` when configuring Google sign-in.
+
+Keep these local demo settings unless you have a reason to change them:
+
+```dotenv
+ENVIRONMENT=development
+DEBUG=false
+ENABLE_DEV_AUTH=false
+DB_READ_REPLICAS_ENABLED=false
+EMBEDDING_BATCH_SIZE=8
+EMBEDDING_NUM_THREADS=1
+RAG_INGESTION_BATCH_SIZE=8
+RAG_MAX_CONCURRENT_INGESTIONS=1
+RAG_TOP_K=4
+MAX_UPLOAD_SIZE_BYTES=10485760
+```
+
+`ENABLE_DEV_AUTH` should remain `false` for the normal authentication demonstration. Do not enable the development login path in a shared or production environment.
+
+### 2. Build images sequentially
+
+Build one image at a time to avoid competing memory peaks on an 8 GB machine:
+
+```bash
+docker compose build backend
+docker compose build frontend
+```
+
+The backend image build downloads and caches the MiniLM embedding model. The first build therefore needs internet access and can take longer; subsequent container starts use the model cached in the image.
+
+### 3. Start the default lightweight stack
+
+```bash
+docker compose up -d
 docker compose ps
+```
 
-# 5. View live logs (e.g., backend or postgres-primary)
+The default stack starts seven services: PostgreSQL primary, Redis, Qdrant, MinIO, Keycloak, backend, and frontend. PostgreSQL read replicas and Prometheus/Grafana are excluded unless their Compose profiles are explicitly enabled.
+
+### 4. Check logs and open the application
+
+```bash
 docker compose logs -f backend
+```
 
-# 6. Stop and clean up containers when finished
+Open the frontend at **http://localhost:3000**. The backend health endpoint is **http://localhost:8000/api/v1/health**. In the local development environment, the API documentation is available at **http://localhost:8000/docs**.
+
+For Google login, ensure the Google OAuth credentials are configured in `.env` and the authorized redirect URI in the Google provider setup matches the Keycloak broker configuration. The local OIDC client redirect URI registered in the Keycloak realm is `http://localhost:3000/auth/callback`. Google must separately be configured with the Keycloak Google-broker redirect URI shown in the Keycloak identity-provider settings.
+
+### 5. Stop the stack
+
+```bash
 docker compose down
 ```
 
-Visit the application at: `http://localhost:3000`.
+This stops containers but retains named data volumes. **Do not add `-v`** unless you deliberately want to remove the database, vector-store, Redis, and object-storage data.
 
----
+## Run the lightweight Kubernetes profile
 
-### 6.2 Local Native Development (Fast Hot-Reloading)
-
-For rapid code editing without container rebuilds:
+Use this workflow when you need to demonstrate Kubernetes on the Mac. Stop the Docker Compose stack first:
 
 ```bash
-# 1. Start support services in Docker
-docker compose up -d postgres-primary redis qdrant minio keycloak
-
-# 2. Backend Setup (Terminal 1)
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r backend/requirements.txt
-alembic upgrade head
-uvicorn backend.app.main:app --host 0.0.0.0 --port 8000 --reload
-
-# 3. Frontend Setup (Terminal 2)
-cd frontend
-npm install
-npm run dev
-
-# 4. Frontend Production Build Check
-npm run lint
-npm run build
+docker compose down
 ```
 
----
+Make sure Docker Desktop Kubernetes is enabled and the current `kubectl` context points to that local cluster.
 
-### 6.3 Kubernetes Orchestration & Cluster Development (Minikube / kubectl)
+### 1. Build the local images sequentially
 
-Deploy declarative manifests to local Kubernetes:
+Run from the repository root:
 
 ```bash
-# 1. Launch Minikube cluster and enable required addons
-minikube start --cpus=4 --memory=8192
-minikube addons enable ingress
-minikube addons enable metrics-server
+docker build -f docker/backend.Dockerfile -t university-knowledge-assistant-backend:latest .
+docker build -f docker/frontend.Dockerfile -t university-knowledge-assistant-frontend:latest .
+```
 
-# 2. Apply all declarative Kubernetes manifests
-kubectl apply -f kubernetes/base/
-kubectl apply -f kubernetes/postgres/
-kubectl apply -f kubernetes/ingress.yaml
+The Kubernetes deployments use these image names and `IfNotPresent` image-pull behavior, so the images must be available to the local cluster.
 
-# 3. Inspect Pods, Services, Ingress, and HorizontalPodAutoscaler
+### 2. Create the Kubernetes secret
+
+Create a local file named `uka-secrets.env` and supply the credential values required by the laptop-profile pods. The key list and example format are documented in [`LOCAL_DEMO_8GB.md`](LOCAL_DEMO_8GB.md). Do not commit this secrets file.
+
+Create the secret:
+
+```bash
+kubectl create secret generic uka-secrets --from-env-file=uka-secrets.env -n default
+```
+
+If you have already created the secret and need to update it, delete/recreate it or use an explicit `kubectl create secret ... --dry-run=client -o yaml | kubectl apply -f -` workflow.
+
+### 3. Apply the laptop overlay
+
+```bash
+kubectl apply -k kubernetes/overlays/laptop
 kubectl get pods -w
+```
+
+The laptop overlay runs one PostgreSQL primary, Redis, Qdrant, MinIO, Keycloak, backend, and frontend. It omits PostgreSQL replicas, HPA, Prometheus/Grafana, ingress, and NetworkPolicies. Its configured application pod memory limits total approximately 3.13 GiB; this is a set of resource ceilings, not a measurement of actual runtime usage.
+
+### 4. Port-forward the services
+
+Run each command in a separate terminal:
+
+```bash
+kubectl port-forward svc/frontend 3000:3000
+kubectl port-forward svc/backend 8000:8000
+kubectl port-forward svc/keycloak 8080:8080
+```
+
+Open **http://localhost:3000**. The local Keycloak realm includes the frontend callback `http://localhost:3000/auth/callback` and the frontend web origin `http://localhost:3000`.
+
+For complete environment-variable examples and laptop-specific notes, see [`LOCAL_DEMO_8GB.md`](LOCAL_DEMO_8GB.md). For the full Kubernetes deployment requirements (including ingress TLS and production host configuration), see [`kubernetes/README.md`](kubernetes/README.md).
+
+## Optional replication and monitoring
+
+The full Docker Compose stack can demonstrate PostgreSQL read replicas and Prometheus/Grafana separately from the lightweight default profile. In `.env`, set:
+
+```dotenv
+DB_READ_REPLICAS_ENABLED=true
+POSTGRES_REPLICA1_HOST=postgres-replica-1
+POSTGRES_REPLICA2_HOST=postgres-replica-2
+```
+
+Then start the additional services:
+
+```bash
+docker compose --profile replication --profile monitoring up -d
+```
+
+This profile uses additional memory. Return to the laptop-friendly stack by stopping the services and starting the default Compose profile again. Do not enable these optional services for the normal 8 GB demo unless you specifically need to demonstrate replication or monitoring.
+
+## Useful URLs and commands
+
+| Service | Local URL / port | Purpose |
+|---|---|---|
+| Frontend | [http://localhost:3000](http://localhost:3000) | Web application |
+| Backend API | [http://localhost:8000](http://localhost:8000) | FastAPI service |
+| API documentation | [http://localhost:8000/docs](http://localhost:8000/docs) | Development-only Swagger UI |
+| Keycloak | [http://localhost:8080](http://localhost:8080) | Identity provider |
+| MinIO Console | [http://localhost:9001](http://localhost:9001) | Object-storage console |
+| Qdrant | [http://localhost:6333](http://localhost:6333) | Vector database API |
+| PostgreSQL | `localhost:5432` | Relational database |
+| Prometheus | [http://localhost:9091](http://localhost:9091) | Optional monitoring profile (port 9091 to avoid Jenkins conflict) |
+| Grafana | [http://localhost:3001](http://localhost:3001) | Optional dashboards profile |
+
+Useful Docker commands:
+
+```bash
+docker compose ps
+docker compose logs -f backend
+docker compose logs -f frontend
+docker compose restart backend
+docker compose down
+```
+
+Useful Kubernetes commands:
+
+```bash
+kubectl get pods
 kubectl get services
-kubectl get ingress
-kubectl get hpa uka-backend-hpa
-
-# 4. Demonstrate Zero-Downtime Rolling Update
-./scripts/deploy/deploy-k8s.sh
-
-# 5. Demonstrate Automated Rollback
-./scripts/deploy/rollback-k8s.sh
+kubectl logs deployment/backend
+kubectl describe pod <pod-name>
+kubectl get events --sort-by=.lastTimestamp
 ```
 
----
+## Repository structure
 
-### 6.4 Database Migrations & Multi-Replica Inspection
-
-Manage PostgreSQL schema migrations and observe replication synchronization:
-
-```bash
-# Apply pending schema migrations
-alembic upgrade head
-
-# Check current database migration revision
-alembic current
-
-# Create a new migration after model edits
-alembic revision --autogenerate -m "describe_schema_change"
-
-# Inspect active PostgreSQL WAL streaming replication from Primary
-docker exec -it postgres-primary psql -U postgres -d university_assistant \
-  -c "SELECT application_name, client_addr, state, sync_state FROM pg_stat_replication;"
-
-# Sample real-time replication lag in bytes
-docker exec -it postgres-primary psql -U postgres -d university_assistant \
-  -c "SELECT application_name, COALESCE(pg_wal_lsn_diff(pg_current_wal_lsn(), replay_lsn), 0) AS lag_bytes FROM pg_stat_replication;"
+```text
+.
+├── backend/
+│   ├── app/
+│   │   ├── api/          # FastAPI routes: auth, documents, RAG, conversations, admin, health
+│   │   ├── core/         # Configuration, security, errors, logging, cache, metrics
+│   │   ├── db/           # SQLAlchemy models, sessions, database routing
+│   │   ├── rag/          # PDF extraction, chunking, embeddings, retrieval, citations, LLM
+│   │   └── services/     # External storage and service integrations
+│   └── tests/            # Backend tests
+├── frontend/             # Next.js application and UI routes
+├── database/             # SQL initialization and Alembic migrations
+├── docker/               # Backend/frontend Dockerfiles and service initialization
+├── kubernetes/
+│   ├── base/              # Full Kubernetes resources
+│   ├── overlays/laptop/   # Reduced-resource single-node overlay
+│   └── postgres/          # PostgreSQL primary/replica manifests
+├── monitoring/           # Prometheus and Grafana configuration
+├── scripts/              # Deployment, CI, demo, and verification scripts
+├── docker-compose.yml
+├── .env.example
+├── LOCAL_DEMO_8GB.md
+└── PATCH_NOTES.md
 ```
 
----
+## Security and deployment notes
 
-### 6.5 Quality Assurance, Linting & Automated Test Suites
+- Never commit `.env`, `uka-secrets.env`, OAuth client secrets, API keys, database passwords, or Kubernetes secret material.
+- The laptop Kubernetes overlay is for local demonstration, not production deployment. It intentionally omits ingress TLS, NetworkPolicies, autoscaling, read replicas, and monitoring.
+- Before a public deployment, configure TLS, production hostnames, trusted CORS origins, Keycloak redirect URIs/web origins, Kubernetes Secrets, persistent-volume backups, and image/dependency scanning.
+- The regular Keycloak realm requires valid OAuth credentials for Google federation. Do not use placeholder values for a real login demonstration.
+- The backend Swagger/OpenAPI endpoints are enabled only in development/testing mode.
+- Back up persistent data before changing database initialization or migration setup. Initialization SQL only runs when the PostgreSQL data directory is first created.
 
-Run the project quality gates locally before pushing commits:
+## More documentation
 
-```bash
-# Run backend code linter (Ruff)
-./scripts/ci/lint-backend.sh
-
-# Run frontend code linter (ESLint)
-./scripts/ci/lint-frontend.sh
-
-# Run full backend test suite (93 automated pytest tests)
-./scripts/ci/test-backend.sh
-
-# Run frontend production compilation check (Next.js 14)
-./scripts/ci/build-frontend.sh
-
-# Run live end-to-end user journey demonstration (all 34 checkpoints)
-python scripts/demo/verify_e2e_journey.py
-```
-
----
-
-### 6.6 Monitoring & Telemetry Dashboards
-
-Visualize system performance, request volume, and replication lag:
-
-```bash
-# Ensure monitoring stack is running
-docker compose up -d prometheus grafana backend
-
-# 1. Open Grafana Dashboard:
-#    URL: http://localhost:3001 (Credentials: admin / admin)
-
-# 2. Open Prometheus Metrics Explorer:
-#    URL: http://localhost:9090 (Query: uka_postgres_replication_lag_bytes)
-
-# 3. Open Raw Application Metrics Endpoint:
-#    URL: http://localhost:8000/metrics
-```
-
----
-
-## 7. Key Verification & Quality Metrics
-
-- **Automated Pytest Suite:** 93/93 tests passing (0 failures).
-- **Frontend Quality Gate:** 20/20 routes statically generated and compiled (0 warnings/errors).
-- **End-to-End Acceptance:** 34/34 checkpoints verified across Student, Faculty, Admin, Database, and Deployment journeys (Prompt 29).
-- **Empirical RAG Benchmark:** 100% precision, 100% recall, 100% factual groundedness across ground-truth university policies.
-- **JIRA Project:** 15 Epics (`UKA-1` through `UKA-15`) and 51 sub-tasks completed on `nightbladeninja.atlassian.net`.
-
----
-
-## 8. Documentation Index
-
-Detailed engineering documentation is organized in [`docs/`](docs/):
-- **[System Architecture](docs/architecture.md):** Layered component catalog, RAG sequence diagrams, OAuth flow, and replication routing.
-- **[Technology Decisions](docs/technology-decisions.md):** Architectural choices, LLM selection rationale, and citation metadata schema.
-- **[Database Design](docs/database-design.md):** Entity-Relationship model, streaming replication configuration, and indexing strategy.
-- **[REST API Documentation](docs/api-documentation.md):** Endpoint specifications, request/response models, and error status codes.
-- **[Deployment & Operations Guide](docs/deployment-guide.md):** Docker Compose, Kubernetes Minikube setup, HPA autoscaling, and rollback scripts.
-- **[Master Testing Report](docs/testing-report.md):** Consolidated test results across unit, integration, RAG benchmark, load testing, and E2E audits.
-- **[JIRA & Git Summary](docs/jira-git-summary.md):** Complete project management log, sprint breakdown, pull requests, and CI/CD quality gates.
-- **[University Demonstration Script](docs/demo-script.md):** Step-by-step presentation script for the capstone evaluation committee.
-- **[Known Limitations](docs/known-limitations.md):** Architectural boundaries, OCR considerations, and future enterprise roadmap.
-- **[Final Verification Report](docs/verification-report.md):** Exhaustive 34-checkpoint audit report with terminal logs (Prompt 29).
+- [`LOCAL_DEMO_8GB.md`](LOCAL_DEMO_8GB.md) — detailed resource-conscious Docker and Kubernetes instructions for an 8 GB Apple Silicon Mac.
+- [`kubernetes/README.md`](kubernetes/README.md) — full Kubernetes prerequisites, secrets, TLS, production build arguments, and existing-volume notes.
+- [`PATCH_NOTES.md`](PATCH_NOTES.md) — code changes, resource optimizations, validation performed, and known remaining work.

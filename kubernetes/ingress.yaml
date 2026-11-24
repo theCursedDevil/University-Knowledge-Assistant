@@ -7,14 +7,19 @@ metadata:
     app.kubernetes.io/name: university-knowledge-assistant
     app.kubernetes.io/part-of: uka
   annotations:
-    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
     nginx.ingress.kubernetes.io/proxy-body-size: "25m"
     nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
     nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
 spec:
   ingressClassName: nginx
+  tls:
+    - hosts: [uka.university.edu]
+      secretName: uka-ingress-tls
   rules:
-    - http:
+    - host: uka.university.edu
+      http:
         paths:
           - path: /api
             pathType: Prefix
@@ -23,27 +28,20 @@ spec:
                 name: backend
                 port:
                   number: 8000
-          - path: /health
+          - path: /realms
             pathType: Prefix
             backend:
               service:
-                name: backend
+                name: keycloak
                 port:
-                  number: 8000
-          - path: /docs
+                  number: 8080
+          - path: /resources
             pathType: Prefix
             backend:
               service:
-                name: backend
+                name: keycloak
                 port:
-                  number: 8000
-          - path: /openapi.json
-            pathType: Prefix
-            backend:
-              service:
-                name: backend
-                port:
-                  number: 8000
+                  number: 8080
           - path: /
             pathType: Prefix
             backend:

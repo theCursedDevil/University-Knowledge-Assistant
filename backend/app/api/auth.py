@@ -12,8 +12,8 @@ Endpoints:
 
 import uuid
 from datetime import datetime
-from typing import List, Optional
-from fastapi import APIRouter, Depends, status, Query, Request, Response
+from typing import List, Optional, Literal
+from fastapi import APIRouter, Depends, status, Request, Response, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -28,7 +28,8 @@ from backend.app.core.security import (
     keycloak_service,
 )
 from backend.app.db.session import get_db
-from backend.app.db.models import User
+from backend.app.db.models import User, AuditLog
+from backend.app.core.rate_limit import check_auth_rate_limit
 
 settings = get_settings()
 router = APIRouter(tags=["Auth"])
@@ -68,7 +69,7 @@ class LoginRequest(BaseModel):
     """Request schema for dev login entry point."""
 
     email: str = Field(..., description="User email address.")
-    role: Optional[str] = Field(default="student", description="Role persona: student, faculty, or admin.")
+    role: Optional[Literal["student", "faculty", "admin"]] = Field(default="student", description="Role persona: student, faculty, or admin.")
     name: Optional[str] = None
 
 
@@ -76,7 +77,7 @@ class LoginResponse(BaseModel):
     """Response schema returned after successful login."""
 
     user: UserResponse
-    access_token: str
+    access_token: Optional[str] = None
     token_type: str = "bearer"
 
 
@@ -136,6 +137,7 @@ async def get_keycloak_config() -> KeycloakConfigResponse:
     "/auth/token",
     response_model=LoginResponse,
     status_code=status.HTTP_200_OK,
+    dependencies=[Depends(check_auth_rate_limit)],
     summary="Exchange Authorization Code (PKCE)",
     description="Exchanges Keycloak authorization code + PKCE verifier for tokens and sets secure httpOnly cookies.",
 )
@@ -145,6 +147,14 @@ async def exchange_token(
     db: AsyncSession = Depends(get_db),
 ) -> LoginResponse:
     """Exchanges PKCE authorization code with Keycloak, provisions user, and sets cookies."""
+    valid_redirect_uris = {
+        settings.KEYCLOAK_REDIRECT_URI,
+        "http://localhost:3000/auth/callback",
+        "http://127.0.0.1:3000/auth/callback",
+    } if settings.KEYCLOAK_REDIRECT_URI else set()
+    if valid_redirect_uris and payload.redirect_uri not in valid_redirect_uris:
+        raise UnauthorizedError("The OAuth redirect URI does not match the configured callback.")
+
     token_data = await keycloak_service.exchange_code_for_tokens(
         code=payload.code,
         code_verifier=payload.code_verifier,
@@ -161,6 +171,14 @@ async def exchange_token(
 
     claims = token_validator.validate_token(access_token)
     user = await get_or_provision_user_from_claims(db=db, claims=claims)
+    db.add(AuditLog(
+        user_id=user.id,
+        action="LOGIN",
+        entity="auth",
+        entity_id=str(user.id),
+        details={"provider": "keycloak"},
+    ))
+    await db.commit()
 
     # Secure httpOnly cookie storage (never expose tokens to localStorage)
     response.set_cookie(
@@ -186,7 +204,7 @@ async def exchange_token(
     logger.info("[AUTH] Completed PKCE token exchange for user=%s role=%s", user.email, user.role)
     return LoginResponse(
         user=to_user_response(user),
-        access_token=access_token,
+        access_token=None,
         token_type="bearer",
     )
 
@@ -195,8 +213,9 @@ async def exchange_token(
     "/auth/refresh",
     response_model=LoginResponse,
     status_code=status.HTTP_200_OK,
+    dependencies=[Depends(check_auth_rate_limit)],
     summary="Refresh Access Token",
-    description="Refreshes access token using httpOnly cookie or payload refresh token.",
+    description="Refreshes the session using the httpOnly refresh-token cookie.",
 )
 async def refresh_session(
     request: Request,
@@ -205,14 +224,10 @@ async def refresh_session(
     db: AsyncSession = Depends(get_db),
 ) -> LoginResponse:
     """Exchanges refresh token with Keycloak for renewed tokens."""
-    refresh_token = None
-    if payload and payload.refresh_token:
-        refresh_token = payload.refresh_token
-    elif "uka_refresh_token" in request.cookies:
-        refresh_token = request.cookies.get("uka_refresh_token")
+    refresh_token = request.cookies.get("uka_refresh_token")
 
     if not refresh_token:
-        raise UnauthorizedError("No refresh token provided in cookie or payload.")
+        raise UnauthorizedError("No refresh token cookie is available. Please sign in again.")
 
     token_data = await keycloak_service.refresh_tokens(refresh_token)
     access_token = token_data.get("access_token")
@@ -247,7 +262,7 @@ async def refresh_session(
 
     return LoginResponse(
         user=to_user_response(user),
-        access_token=access_token,
+        access_token=None,
         token_type="bearer",
     )
 
@@ -264,11 +279,7 @@ async def logout(
     payload: Optional[TokenRefreshRequest] = None,
 ):
     """Revokes Keycloak session and deletes authentication cookies."""
-    refresh_token = None
-    if payload and payload.refresh_token:
-        refresh_token = payload.refresh_token
-    elif "uka_refresh_token" in request.cookies:
-        refresh_token = request.cookies.get("uka_refresh_token")
+    refresh_token = request.cookies.get("uka_refresh_token")
 
     if refresh_token:
         try:
@@ -276,8 +287,8 @@ async def logout(
         except Exception as exc:
             logger.warning("[AUTH] Keycloak logout call failed: %s", str(exc))
 
-    response.delete_cookie(key="uka_access_token", path="/")
-    response.delete_cookie(key="uka_refresh_token", path="/")
+    response.delete_cookie(key="uka_access_token", path="/", secure=settings.is_cookie_secure, httponly=True, samesite="lax")
+    response.delete_cookie(key="uka_refresh_token", path="/", secure=settings.is_cookie_secure, httponly=True, samesite="lax")
 
     return {
         "status": "success",
@@ -289,6 +300,7 @@ async def logout(
     "/auth/login",
     response_model=LoginResponse,
     status_code=status.HTTP_200_OK,
+    dependencies=[Depends(check_auth_rate_limit)],
     summary="Development User Login Entry Point",
     description="Authenticates or provisions a development user in PostgreSQL and returns an access token.",
 )
@@ -297,10 +309,11 @@ async def login(
     response: Response,
     db: AsyncSession = Depends(get_db),
 ) -> LoginResponse:
-    """Provisions or fetches the specified user and issues a bearer token."""
+    """Provides a local-only mock login when explicitly enabled."""
+    if settings.ENVIRONMENT.strip().lower() not in ("development", "testing") or not settings.ENABLE_DEV_AUTH:
+        raise HTTPException(status_code=404, detail="Not found")
+
     role = payload.role or "student"
-    if role not in ("student", "faculty", "admin"):
-        role = "student"
 
     user = await get_or_create_dev_user(
         db=db,
@@ -310,6 +323,14 @@ async def login(
     )
 
     token = f"dev-token-{user.role}-{user.id}"
+    db.add(AuditLog(
+        user_id=user.id,
+        action="LOGIN",
+        entity="auth",
+        entity_id=str(user.id),
+        details={"provider": "development"},
+    ))
+    await db.commit()
     response.set_cookie(
         key="uka_access_token",
         value=token,
@@ -326,22 +347,3 @@ async def login(
         access_token=token,
         token_type="bearer",
     )
-
-
-@router.get(
-    "/auth/callback",
-    status_code=status.HTTP_200_OK,
-    summary="OAuth 2.0 Redirect Handler",
-    description="Handles OAuth 2.0 authorization code callbacks from Keycloak.",
-)
-async def oauth_callback(
-    code: Optional[str] = Query(default=None, description="Authorization code from Keycloak"),
-    state: Optional[str] = Query(default=None, description="CSRF state token"),
-):
-    """Stub redirect handler for Keycloak OAuth 2.0 callback."""
-    return {
-        "status": "success",
-        "message": "OAuth callback processed successfully",
-        "code_received": bool(code),
-        "state": state,
-    }

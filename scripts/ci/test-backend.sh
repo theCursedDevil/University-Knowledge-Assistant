@@ -13,6 +13,7 @@ cd "${REPO_ROOT}"
 echo "=================================================="
 echo "Running Backend Test Suite (pytest)"
 echo "=================================================="
+echo "Install backend/requirements-dev.txt before running this script."
 
 # Check if pytest is available in PATH or .venv
 if command -v pytest &> /dev/null; then
@@ -33,7 +34,7 @@ if command -v alembic &> /dev/null; then
 elif [[ -x "${REPO_ROOT}/.venv/bin/alembic" ]]; then
     "${REPO_ROOT}/.venv/bin/alembic" upgrade head
 else
-    python3 -m alembic upgrade head || true
+    python3 -m alembic upgrade head
 fi
 
 # If specific arguments are provided, pass them to pytest; otherwise run test suite

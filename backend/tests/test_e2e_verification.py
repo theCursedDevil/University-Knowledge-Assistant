@@ -77,12 +77,12 @@ def test_e2e_student_journey(client: TestClient):
     student_headers = {"X-Dev-Role": "student"}
 
     # Step 1: Open the application (Healthcheck)
-    health_resp = client.get("/health")
+    health_resp = client.get("/api/v1/health")
     assert health_resp.status_code == 200
     assert health_resp.json().get("status") == "healthy"
 
     # Step 2: Log in through Keycloak / View user profile
-    me_resp = client.get("/me", headers=student_headers)
+    me_resp = client.get("/api/v1/me", headers=student_headers)
     assert me_resp.status_code == 200
     profile = me_resp.json()
     assert profile["role"] == "student"
@@ -90,7 +90,7 @@ def test_e2e_student_journey(client: TestClient):
 
     # Step 3 & 4: Start conversation and ask a university-related question
     conv_resp = client.post(
-        "/conversations",
+        "/api/v1/conversations",
         json={"title": "Academic Calendar Inquiry"},
         headers=student_headers,
     )
@@ -98,7 +98,7 @@ def test_e2e_student_journey(client: TestClient):
     conv_id = conv_resp.json()["id"]
 
     msg1_resp = client.post(
-        f"/conversations/{conv_id}/messages",
+        f"/api/v1/conversations/{conv_id}/messages",
         json={"content": "When are the final semester examinations scheduled?"},
         headers=student_headers,
     )
@@ -112,31 +112,31 @@ def test_e2e_student_journey(client: TestClient):
 
     # Step 6: Ask a follow-up question (multi-turn memory lookback)
     msg2_resp = client.post(
-        f"/conversations/{conv_id}/messages",
+        f"/api/v1/conversations/{conv_id}/messages",
         json={"content": "Where can I obtain the examination admit card?"},
         headers=student_headers,
     )
     assert msg2_resp.status_code in [200, 201]
 
     # Step 7: Open previous conversations
-    list_convs = client.get("/conversations", headers=student_headers)
+    list_convs = client.get("/api/v1/conversations", headers=student_headers)
     assert list_convs.status_code == 200
     conv_list = list_convs.json()
     assert any(c["id"] == conv_id for c in conv_list)
 
-    detail_conv = client.get(f"/conversations/{conv_id}", headers=student_headers)
+    detail_conv = client.get(f"/api/v1/conversations/{conv_id}", headers=student_headers)
     assert detail_conv.status_code == 200
     messages = detail_conv.json().get("messages", [])
     assert len(messages) >= 2
     assert messages[0]["content"] == "When are the final semester examinations scheduled?"
 
     # Step 8: View user profile again
-    prof_check = client.get("/me", headers=student_headers)
+    prof_check = client.get("/api/v1/me", headers=student_headers)
     assert prof_check.status_code == 200
     assert prof_check.json()["role"] == "student"
 
     # Step 9: Log out
-    logout_resp = client.post("/auth/logout", headers=student_headers)
+    logout_resp = client.post("/api/v1/auth/logout", headers=student_headers)
     assert logout_resp.status_code == 200
     assert logout_resp.json().get("message") == "Logged out successfully"
 
@@ -151,14 +151,14 @@ def test_e2e_faculty_journey(client: TestClient):
     faculty_headers = {"X-Dev-Role": "faculty"}
 
     # Step 1: Log in through Keycloak as faculty
-    me_resp = client.get("/me", headers=faculty_headers)
+    me_resp = client.get("/api/v1/me", headers=faculty_headers)
     assert me_resp.status_code == 200
     assert me_resp.json()["role"] == "faculty"
     assert "faculty" in me_resp.json().get("roles", [])
 
     # Step 2: Ask questions
     conv_resp = client.post(
-        "/conversations",
+        "/api/v1/conversations",
         json={"title": "Faculty Research Grant Inquiry"},
         headers=faculty_headers,
     )
@@ -166,32 +166,32 @@ def test_e2e_faculty_journey(client: TestClient):
     conv_id = conv_resp.json()["id"]
 
     msg_resp = client.post(
-        f"/conversations/{conv_id}/messages",
+        f"/api/v1/conversations/{conv_id}/messages",
         json={"content": "What is the procedure for proposing an elective course?"},
         headers=faculty_headers,
     )
     assert msg_resp.status_code in [200, 201]
 
     # Step 3: Verify correct document access permissions
-    docs_resp = client.get("/documents", headers=faculty_headers)
+    docs_resp = client.get("/api/v1/documents", headers=faculty_headers)
     assert docs_resp.status_code == 200
 
     # Faculty is strictly forbidden from accessing Admin-only console endpoints
-    admin_stats_resp = client.get("/admin/stats", headers=faculty_headers)
+    admin_stats_resp = client.get("/api/v1/admin/stats", headers=faculty_headers)
     assert admin_stats_resp.status_code == 403
 
-    admin_audit_resp = client.get("/admin/audit-logs", headers=faculty_headers)
+    admin_audit_resp = client.get("/api/v1/admin/audit-logs", headers=faculty_headers)
     assert admin_audit_resp.status_code == 403
 
     # Step 4: Verify follow-up conversation persistence
     followup_resp = client.post(
-        f"/conversations/{conv_id}/messages",
+        f"/api/v1/conversations/{conv_id}/messages",
         json={"content": "Who evaluates the course proposal syllabus?"},
         headers=faculty_headers,
     )
     assert followup_resp.status_code in [200, 201]
 
-    conv_get = client.get(f"/conversations/{conv_id}", headers=faculty_headers)
+    conv_get = client.get(f"/api/v1/conversations/{conv_id}", headers=faculty_headers)
     assert conv_get.status_code == 200
     assert len(conv_get.json().get("messages", [])) >= 2
 
@@ -206,12 +206,12 @@ def test_e2e_admin_journey(client: TestClient):
     admin_headers = {"X-Dev-Role": "admin"}
 
     # Step 1: Log in as admin
-    me_resp = client.get("/me", headers=admin_headers)
+    me_resp = client.get("/api/v1/me", headers=admin_headers)
     assert me_resp.status_code == 200
     assert me_resp.json()["role"] == "admin"
 
     # Step 2: Open the admin console (Stats & Analytics)
-    stats_resp = client.get("/admin/stats", headers=admin_headers)
+    stats_resp = client.get("/api/v1/admin/stats", headers=admin_headers)
     assert stats_resp.status_code == 200
     assert "total_documents" in stats_resp.json()
 
@@ -219,7 +219,7 @@ def test_e2e_admin_journey(client: TestClient):
     doc_title = f"E2E Policy {uuid.uuid4().hex[:6]}"
     pdf_bytes = generate_e2e_test_pdf(doc_title)
     upload_resp = client.post(
-        "/documents",
+        "/api/v1/documents",
         files={"file": ("e2e_policy.pdf", io.BytesIO(pdf_bytes), "application/pdf")},
         data={"category": "Academic", "title": doc_title, "role_restriction": "student"},
         headers=admin_headers,
@@ -228,24 +228,24 @@ def test_e2e_admin_journey(client: TestClient):
     doc_id = upload_resp.json()["id"]
 
     # Step 4: Verify document processing
-    process_resp = client.post(f"/documents/{doc_id}/process", headers=admin_headers)
+    process_resp = client.post(f"/api/v1/documents/{doc_id}/process", headers=admin_headers)
     assert process_resp.status_code == 200
     assert process_resp.json().get("status") in ["ready", "processed", "completed"]
 
     # Step 5: View the document list
-    list_resp = client.get("/documents", headers=admin_headers)
+    list_resp = client.get("/api/v1/documents", headers=admin_headers)
     assert list_resp.status_code == 200
     doc_items = list_resp.json()
     assert any(d["id"] == doc_id for d in doc_items)
 
     # Step 6: Preview the document
-    preview_resp = client.get(f"/documents/{doc_id}/preview", headers=admin_headers)
+    preview_resp = client.get(f"/api/v1/documents/{doc_id}/preview", headers=admin_headers)
     assert preview_resp.status_code == 200
     assert preview_resp.json()["id"] == doc_id
 
     # Step 7: Edit document metadata
     patch_resp = client.patch(
-        f"/documents/{doc_id}",
+        f"/api/v1/documents/{doc_id}",
         json={"title": f"{doc_title} (Revised)", "category": "Administrative", "expected_version": 1},
         headers=admin_headers,
     )
@@ -254,16 +254,16 @@ def test_e2e_admin_journey(client: TestClient):
     assert patch_resp.json()["version"] == 2
 
     # Step 8: Delete the document
-    delete_resp = client.delete(f"/documents/{doc_id}", headers=admin_headers)
+    delete_resp = client.delete(f"/api/v1/documents/{doc_id}", headers=admin_headers)
     assert delete_resp.status_code == 200
     assert delete_resp.json().get("id") == doc_id
 
     # Step 9: Open analytics
-    analytics_resp = client.get("/admin/stats", headers=admin_headers)
+    analytics_resp = client.get("/api/v1/admin/stats", headers=admin_headers)
     assert analytics_resp.status_code == 200
 
     # Step 10: Verify audit log entries
-    audit_resp = client.get("/admin/audit-logs", headers=admin_headers)
+    audit_resp = client.get("/api/v1/admin/audit-logs", headers=admin_headers)
     assert audit_resp.status_code == 200
     audit_logs = audit_resp.json()
     assert len(audit_logs) > 0

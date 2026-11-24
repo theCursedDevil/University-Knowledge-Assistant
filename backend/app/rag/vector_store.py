@@ -234,12 +234,22 @@ class QdrantVectorStore:
         filter_category: Optional[str] = None,
         filter_document_id: Optional[uuid.UUID] = None,
         user_role: Optional[str] = None,
+        allowed_document_ids: Optional[List[str]] = None,
     ) -> List[SearchResult]:
-        """Executes top-k cosine similarity search against Qdrant collection with role-based filtering."""
+        """Executes similarity search with role and PostgreSQL-authoritative document filters."""
         self.ensure_collection_exists()
 
         must_conditions = []
         must_not_conditions = []
+        if allowed_document_ids is not None:
+            if not allowed_document_ids:
+                return []
+            must_conditions.append(
+                models.FieldCondition(
+                    key="document_id",
+                    match=models.MatchAny(any=[str(value) for value in allowed_document_ids]),
+                )
+            )
 
         if filter_category:
             must_conditions.append(
@@ -256,26 +266,21 @@ class QdrantVectorStore:
                 )
             )
 
-        # Enforce server-side role-based chunk visibility (FR-DOC-010, NFR-SEC-009)
+        # Keep an allow-list as defence in depth. PostgreSQL supplies the authoritative
+        # set of existing documents; the Qdrant payload is never the sole access control.
         role = (user_role or "").lower().strip()
-        if role == "student":
-            must_not_conditions.append(
+        role_values = {
+            "student": ["", "all", "public", "student"],
+            "faculty": ["", "all", "public", "student", "faculty"],
+            "admin": ["", "all", "public", "student", "faculty", "admin"],
+        }
+        if role not in role_values:
+            return []
+        if role != "admin":
+            must_conditions.append(
                 models.FieldCondition(
                     key="role_restriction",
-                    match=models.MatchValue(value="faculty"),
-                )
-            )
-            must_not_conditions.append(
-                models.FieldCondition(
-                    key="role_restriction",
-                    match=models.MatchValue(value="admin"),
-                )
-            )
-        elif role == "faculty":
-            must_not_conditions.append(
-                models.FieldCondition(
-                    key="role_restriction",
-                    match=models.MatchValue(value="admin"),
+                    match=models.MatchAny(any=role_values[role]),
                 )
             )
 
@@ -336,6 +341,7 @@ class QdrantVectorStore:
         filter_category: Optional[str] = None,
         filter_document_id: Optional[uuid.UUID] = None,
         user_role: Optional[str] = None,
+        allowed_document_ids: Optional[List[str]] = None,
     ) -> List[SearchResult]:
         """Encodes query with all-MiniLM-L6-v2 and retrieves top-k most similar chunks."""
         from backend.app.rag.embeddings import embedding_client
@@ -348,6 +354,30 @@ class QdrantVectorStore:
             filter_category=filter_category,
             filter_document_id=filter_document_id,
             user_role=user_role,
+            allowed_document_ids=allowed_document_ids,
+        )
+
+    def set_document_role_restriction(
+        self,
+        document_id: uuid.UUID,
+        role_restriction: Optional[str],
+    ) -> None:
+        """Synchronizes access metadata on every Qdrant point for a document."""
+        self.ensure_collection_exists()
+        self.client.set_payload(
+            collection_name=self.collection_name,
+            payload={"role_restriction": (role_restriction or "").strip().lower()},
+            points=models.FilterSelector(
+                filter=models.Filter(
+                    must=[
+                        models.FieldCondition(
+                            key="document_id",
+                            match=models.MatchValue(value=str(document_id)),
+                        )
+                    ]
+                )
+            ),
+            wait=True,
         )
 
 

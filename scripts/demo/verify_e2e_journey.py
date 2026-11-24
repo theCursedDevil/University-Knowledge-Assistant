@@ -5,11 +5,15 @@ Performs live user journey validation across Student, Faculty, Admin, Database, 
 """
 
 import io
+import os
 import uuid
 import yaml
 import fitz
 from pathlib import Path
 from starlette.testclient import TestClient
+
+os.environ.setdefault("ENVIRONMENT", "development")
+os.environ.setdefault("ENABLE_DEV_AUTH", "true")
 
 from backend.app.main import app
 from backend.app.db.session import replica_router
@@ -49,20 +53,21 @@ def run_verification():
     # 1. STUDENT USER JOURNEY
     # -------------------------------------------------------------------------
     print(f"{BOLD}--- 1. STUDENT USER JOURNEY ---{RESET}")
-    student_headers = {"X-Dev-Role": "student"}
+    login = client.post("/api/v1/auth/login", json={"email": "demo.student@university.edu", "role": "student"})
+    assert login.status_code == 200, login.text
 
     # 1.1 Open application
-    r1 = client.get("/health")
+    r1 = client.get("/api/v1/health")
     log_step("STUDENT", 1, "Open application (Health check)", r1.status_code == 200)
 
     # 1.2 Log in through Keycloak
-    r2 = client.get("/me", headers=student_headers)
-    log_step("STUDENT", 2, "Log in through Keycloak (OAuth/OIDC student role)", r2.status_code == 200 and r2.json().get("role") == "student")
+    r2 = client.get("/api/v1/me")
+    log_step("STUDENT", 2, "Establish local development test session", r2.status_code == 200 and r2.json().get("role") == "student")
 
     # 1.3 & 1.4 Ask question and receive answer
-    conv_r = client.post("/conversations", json={"title": "Student Graduation Q&A"}, headers=student_headers)
+    conv_r = client.post("/api/v1/conversations", json={"title": "Student Graduation Q&A"})
     conv_id = conv_r.json().get("id")
-    r3 = client.post(f"/conversations/{conv_id}/messages", json={"content": "When are the final semester examinations scheduled?"}, headers=student_headers)
+    r3 = client.post(f"/api/v1/conversations/{conv_id}/messages", json={"content": "When are the final semester examinations scheduled?"})
     log_step("STUDENT", 3, "Ask university-related question", r3.status_code in [200, 201])
     log_step("STUDENT", 4, "Receive answer based on university documents", len(r3.text) > 10)
 
@@ -72,93 +77,95 @@ def run_verification():
     log_step("STUDENT", 5, "View document citations structure", has_citations_struct)
 
     # 1.6 Follow-up question
-    r4 = client.post(f"/conversations/{conv_id}/messages", json={"content": "Where can I obtain the examination admit card?"}, headers=student_headers)
+    r4 = client.post(f"/api/v1/conversations/{conv_id}/messages", json={"content": "Where can I obtain the examination admit card?"})
     log_step("STUDENT", 6, "Ask follow-up question (context preserved)", r4.status_code in [200, 201])
 
     # 1.7 Open previous conversations
-    r5 = client.get("/conversations", headers=student_headers)
+    r5 = client.get("/api/v1/conversations")
     log_step("STUDENT", 7, "Open previous conversations", r5.status_code == 200 and len(r5.json()) > 0)
 
     # 1.8 View user profile
-    r6 = client.get("/me", headers=student_headers)
+    r6 = client.get("/api/v1/me")
     log_step("STUDENT", 8, "View user profile", r6.status_code == 200 and "student" in r6.json().get("roles", []))
 
     # 1.9 Log out
-    r7 = client.post("/auth/logout", headers=student_headers)
+    r7 = client.post("/api/v1/auth/logout")
     log_step("STUDENT", 9, "Log out", r7.status_code == 200)
 
     # -------------------------------------------------------------------------
     # 2. FACULTY USER JOURNEY
     # -------------------------------------------------------------------------
     print(f"\n{BOLD}--- 2. FACULTY USER JOURNEY ---{RESET}")
-    faculty_headers = {"X-Dev-Role": "faculty"}
+    login = client.post("/api/v1/auth/login", json={"email": "demo.faculty@university.edu", "role": "faculty"})
+    assert login.status_code == 200, login.text
 
     # 2.1 Log in as faculty
-    f1 = client.get("/me", headers=faculty_headers)
-    log_step("FACULTY", 1, "Log in through Keycloak as faculty", f1.status_code == 200 and f1.json().get("role") == "faculty")
+    f1 = client.get("/api/v1/me")
+    log_step("FACULTY", 1, "Establish local faculty test session", f1.status_code == 200 and f1.json().get("role") == "faculty")
 
     # 2.2 Ask questions
-    f_conv = client.post("/conversations", json={"title": "Curriculum Revision"}, headers=faculty_headers).json()["id"]
-    f2 = client.post(f"/conversations/{f_conv}/messages", json={"content": "What is the procedure for proposing an elective course?"}, headers=faculty_headers)
+    f_conv = client.post("/api/v1/conversations", json={"title": "Curriculum Revision"}).json()["id"]
+    f2 = client.post(f"/api/v1/conversations/{f_conv}/messages", json={"content": "What is the procedure for proposing an elective course?"})
     log_step("FACULTY", 2, "Ask questions via conversational interface", f2.status_code in [200, 201])
 
     # 2.3 Verify document access permissions (can list docs, but admin console is 403)
-    f_docs = client.get("/documents", headers=faculty_headers)
-    f_admin = client.get("/admin/stats", headers=faculty_headers)
+    f_docs = client.get("/api/v1/documents")
+    f_admin = client.get("/api/v1/admin/stats")
     log_step("FACULTY", 3, "Verify document access permissions & 403 on admin", f_docs.status_code == 200 and f_admin.status_code == 403)
 
     # 2.4 Verify follow-up conversations
-    f3 = client.post(f"/conversations/{f_conv}/messages", json={"content": "Who evaluates the course proposal syllabus?"}, headers=faculty_headers)
+    f3 = client.post(f"/api/v1/conversations/{f_conv}/messages", json={"content": "Who evaluates the course proposal syllabus?"})
     log_step("FACULTY", 4, "Verify follow-up conversations persistence", f3.status_code in [200, 201])
 
     # -------------------------------------------------------------------------
     # 3. ADMIN USER JOURNEY
     # -------------------------------------------------------------------------
     print(f"\n{BOLD}--- 3. ADMIN USER JOURNEY ---{RESET}")
-    admin_headers = {"X-Dev-Role": "admin"}
+    login = client.post("/api/v1/auth/login", json={"email": "demo.admin@university.edu", "role": "admin"})
+    assert login.status_code == 200, login.text
 
     # 3.1 Log in as admin
-    a1 = client.get("/me", headers=admin_headers)
+    a1 = client.get("/api/v1/me")
     log_step("ADMIN", 1, "Log in as admin", a1.status_code == 200 and a1.json().get("role") == "admin")
 
     # 3.2 Open admin console
-    a2 = client.get("/admin/stats", headers=admin_headers)
+    a2 = client.get("/api/v1/admin/stats")
     log_step("ADMIN", 2, "Open admin console", a2.status_code == 200 and "total_documents" in a2.json())
 
     # 3.3 Upload a PDF
     title = f"Demo Regulation {uuid.uuid4().hex[:4]}"
     pdf_bytes = generate_e2e_test_pdf(title)
-    up = client.post("/documents", files={"file": ("demo.pdf", io.BytesIO(pdf_bytes), "application/pdf")}, data={"category": "Academic", "title": title, "role_restriction": "student"}, headers=admin_headers)
+    up = client.post("/api/v1/documents", files={"file": ("demo.pdf", io.BytesIO(pdf_bytes), "application/pdf")}, data={"category": "Academic", "title": title, "role_restriction": "student"})
     doc_id = up.json().get("id")
     log_step("ADMIN", 3, "Upload a PDF document", up.status_code == 201)
 
     # 3.4 Verify document processing
-    proc = client.post(f"/documents/{doc_id}/process", headers=admin_headers)
+    proc = client.post(f"/api/v1/documents/{doc_id}/process")
     log_step("ADMIN", 4, "Verify document processing", proc.status_code == 200)
 
     # 3.5 View document list
-    doc_list = client.get("/documents", headers=admin_headers)
+    doc_list = client.get("/api/v1/documents")
     doc_items = doc_list.json() if isinstance(doc_list.json(), list) else []
     log_step("ADMIN", 5, "View document list", doc_list.status_code == 200 and any(d["id"] == doc_id for d in doc_items))
 
     # 3.6 Preview document
-    prev = client.get(f"/documents/{doc_id}/preview", headers=admin_headers)
+    prev = client.get(f"/api/v1/documents/{doc_id}/preview")
     log_step("ADMIN", 6, "Preview document content", prev.status_code == 200)
 
     # 3.7 Edit metadata
-    edit = client.patch(f"/documents/{doc_id}", json={"title": f"{title} (Updated)", "expected_version": 1}, headers=admin_headers)
+    edit = client.patch(f"/api/v1/documents/{doc_id}", json={"title": f"{title} (Updated)", "expected_version": 1})
     log_step("ADMIN", 7, "Edit document metadata", edit.status_code == 200 and edit.json().get("version") == 2)
 
     # 3.8 Delete document
-    deld = client.delete(f"/documents/{doc_id}", headers=admin_headers)
+    deld = client.delete(f"/api/v1/documents/{doc_id}")
     log_step("ADMIN", 8, "Delete document (cascading cleanup)", deld.status_code == 200)
 
     # 3.9 Open analytics
-    stats = client.get("/admin/stats", headers=admin_headers)
+    stats = client.get("/api/v1/admin/stats")
     log_step("ADMIN", 9, "Open analytics dashboard", stats.status_code == 200)
 
     # 3.10 Verify audit log
-    audit = client.get("/admin/audit-logs", headers=admin_headers)
+    audit = client.get("/api/v1/admin/audit-logs")
     log_step("ADMIN", 10, "Verify audit log entries", audit.status_code == 200 and len(audit.json()) > 0)
 
     # -------------------------------------------------------------------------
@@ -239,7 +246,7 @@ def run_verification():
     print(f"  • Web Application (Next.js):     http://localhost:3000")
     print(f"  • Swagger API Documentation:     http://localhost:8000/docs")
     print(f"  • Grafana Metrics Dashboard:     http://localhost:3001 (admin / admin)")
-    print(f"  • Prometheus Metrics Explorer:   http://localhost:9090")
+    print(f"  • Prometheus Metrics Explorer:   http://localhost:9091")
     print(f"  • Qdrant Vector Console:         http://localhost:6333/dashboard")
     print(f"  • MinIO S3 Object Storage:       http://localhost:9001 (minioadmin / minioadmin)")
     print(f"  • Keycloak Identity Provider:    http://localhost:8080 (admin / admin)")

@@ -60,7 +60,7 @@ def get_error_message(resp) -> str:
 
 def test_keycloak_config_endpoint(client: TestClient):
     """GET /auth/config returns public Keycloak parameters."""
-    resp = client.get("/auth/config")
+    resp = client.get("/api/v1/auth/config")
     assert resp.status_code == 200
     data = resp.json()
     assert data["keycloak_url"] == settings.public_keycloak_url
@@ -73,7 +73,7 @@ def test_keycloak_jwt_validation_success_student(client: TestClient):
     tokens = get_keycloak_user_token("student", "StudentPassword123!")
     access_token = tokens["access_token"]
 
-    resp = client.get("/me", headers={"Authorization": f"Bearer {access_token}"})
+    resp = client.get("/api/v1/me", headers={"Authorization": f"Bearer {access_token}"})
     assert resp.status_code == 200
     data = resp.json()
     assert data["email"] == "student@university.edu"
@@ -87,7 +87,7 @@ def test_keycloak_jwt_validation_faculty(client: TestClient):
     tokens = get_keycloak_user_token("faculty", "FacultyPassword123!")
     access_token = tokens["access_token"]
 
-    resp = client.get("/me", headers={"Authorization": f"Bearer {access_token}"})
+    resp = client.get("/api/v1/me", headers={"Authorization": f"Bearer {access_token}"})
     assert resp.status_code == 200
     data = resp.json()
     assert data["email"] == "faculty@university.edu"
@@ -100,7 +100,7 @@ def test_keycloak_jwt_validation_admin(client: TestClient):
     tokens = get_keycloak_user_token("admin", "AdminPassword123!")
     access_token = tokens["access_token"]
 
-    resp = client.get("/me", headers={"Authorization": f"Bearer {access_token}"})
+    resp = client.get("/api/v1/me", headers={"Authorization": f"Bearer {access_token}"})
     assert resp.status_code == 200
     data = resp.json()
     assert data["email"] == "admin@university.edu"
@@ -130,7 +130,7 @@ def test_keycloak_jwt_expired_token_returns_401(client: TestClient):
     }
     expired_token = jwt.encode(expired_payload, private_pem, algorithm="RS256", headers=unverified_headers)
 
-    resp = client.get("/me", headers={"Authorization": f"Bearer {expired_token}"})
+    resp = client.get("/api/v1/me", headers={"Authorization": f"Bearer {expired_token}"})
     assert resp.status_code == 401
     msg = get_error_message(resp).lower()
     assert "expired" in msg or "invalid" in msg or "credentials" in msg
@@ -144,7 +144,7 @@ def test_keycloak_jwt_invalid_signature_returns_401(client: TestClient):
     tampered_sig = parts[2][:-6] + "xxxxxx"
     tampered_token = f"{parts[0]}.{parts[1]}.{tampered_sig}"
 
-    resp = client.get("/me", headers={"Authorization": f"Bearer {tampered_token}"})
+    resp = client.get("/api/v1/me", headers={"Authorization": f"Bearer {tampered_token}"})
     assert resp.status_code == 401
     msg = get_error_message(resp).lower()
     assert "invalid" in msg or "credentials" in msg
@@ -172,7 +172,7 @@ def test_keycloak_jwt_wrong_issuer_returns_401(client: TestClient):
     }
     bogus_token = jwt.encode(wrong_issuer_payload, private_pem, algorithm="RS256", headers=unverified_headers)
 
-    resp = client.get("/me", headers={"Authorization": f"Bearer {bogus_token}"})
+    resp = client.get("/api/v1/me", headers={"Authorization": f"Bearer {bogus_token}"})
     assert resp.status_code == 401
     msg = get_error_message(resp).lower()
     assert "issuer" in msg or "invalid" in msg or "credentials" in msg
@@ -180,7 +180,7 @@ def test_keycloak_jwt_wrong_issuer_returns_401(client: TestClient):
 
 def test_missing_token_returns_401(client: TestClient):
     """Missing authentication credentials returns HTTP 401 Unauthorized."""
-    resp = client.get("/me")
+    resp = client.get("/api/v1/me")
     assert resp.status_code in (200, 401)
 
 
@@ -189,7 +189,7 @@ def test_student_role_forbidden_on_admin_stats(client: TestClient):
     tokens = get_keycloak_user_token("student", "StudentPassword123!")
     access_token = tokens["access_token"]
 
-    resp = client.get("/admin/stats", headers={"Authorization": f"Bearer {access_token}"})
+    resp = client.get("/api/v1/admin/stats", headers={"Authorization": f"Bearer {access_token}"})
     assert resp.status_code == 403
     msg = get_error_message(resp).lower()
     assert "privilege" in msg or "administrator" in msg or "forbidden" in msg
@@ -200,7 +200,7 @@ def test_faculty_role_forbidden_on_admin_stats(client: TestClient):
     tokens = get_keycloak_user_token("faculty", "FacultyPassword123!")
     access_token = tokens["access_token"]
 
-    resp = client.get("/admin/stats", headers={"Authorization": f"Bearer {access_token}"})
+    resp = client.get("/api/v1/admin/stats", headers={"Authorization": f"Bearer {access_token}"})
     assert resp.status_code == 403
     msg = get_error_message(resp).lower()
     assert "privilege" in msg or "administrator" in msg or "forbidden" in msg
@@ -211,7 +211,7 @@ def test_admin_role_allowed_on_admin_stats(client: TestClient):
     tokens = get_keycloak_user_token("admin", "AdminPassword123!")
     access_token = tokens["access_token"]
 
-    resp = client.get("/admin/stats", headers={"Authorization": f"Bearer {access_token}"})
+    resp = client.get("/api/v1/admin/stats", headers={"Authorization": f"Bearer {access_token}"})
     assert resp.status_code == 200
     data = resp.json()
     assert "total_documents" in data
@@ -225,7 +225,7 @@ def test_cookie_based_authentication(client: TestClient):
     access_token = tokens["access_token"]
 
     # Deliver via Cookie header
-    resp = client.get("/me", headers={"Cookie": f"uka_access_token={access_token}"})
+    resp = client.get("/api/v1/me", headers={"Cookie": f"uka_access_token={access_token}"})
     assert resp.status_code == 200
     data = resp.json()
     assert data["email"] == "student@university.edu"
@@ -237,7 +237,7 @@ def test_token_refresh_endpoint(client: TestClient):
     tokens = get_keycloak_user_token("faculty", "FacultyPassword123!")
     refresh_token = tokens["refresh_token"]
 
-    resp = client.post("/auth/refresh", json={"refresh_token": refresh_token})
+    resp = client.post("/api/v1/auth/refresh", json={"refresh_token": refresh_token})
     assert resp.status_code == 200
     data = resp.json()
     assert "access_token" in data
@@ -253,7 +253,7 @@ def test_logout_endpoint_revokes_session(client: TestClient):
     refresh_token = tokens["refresh_token"]
 
     resp = client.post(
-        "/auth/logout",
+        "/api/v1/auth/logout",
         json={"refresh_token": refresh_token},
         headers={"Cookie": f"uka_refresh_token={refresh_token}"},
     )
@@ -262,6 +262,6 @@ def test_logout_endpoint_revokes_session(client: TestClient):
     assert data["status"] == "success"
 
     # Attempting to refresh with the revoked refresh token should now fail
-    fail_refresh = client.post("/auth/refresh", json={"refresh_token": refresh_token})
+    fail_refresh = client.post("/api/v1/auth/refresh", json={"refresh_token": refresh_token})
     assert fail_refresh.status_code == 401
     client.cookies.clear()

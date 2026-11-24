@@ -14,8 +14,9 @@ class SensitiveDataFilter(logging.Filter):
         (re.compile(r"(Bearer\s+)[A-Za-z0-9-_=.]+", re.IGNORECASE), r"\1[REDACTED]"),
         # Keycloak / OAuth authorization codes
         (re.compile(r"((?:code|code_verifier|refresh_token|access_token)=)[A-Za-z0-9-_=.]+", re.IGNORECASE), r"\1[REDACTED]"),
-        # JSON / query param passwords and secrets
-        (re.compile(r"((?:password|secret|client_secret)\s*[:=]\s*['\"]?)[^'\",\s]+(['\"]?)", re.IGNORECASE), r"\1[REDACTED]\2"),
+        # Common query-string, key=value, Python dict and JSON credential fields.
+        (re.compile(r"((?:password|secret|client_secret|refresh_token|access_token|token)\s*[:=]\s*['\"]?)[^'\",\s}]+(['\"]?)", re.IGNORECASE), r"\1[REDACTED]\2"),
+        (re.compile(r"((?:postgres(?:ql)?|redis)://[^:/@\s]+:)[^@/\s]+(@)", re.IGNORECASE), r"\1[REDACTED]\2"),
         # Groq API Keys (gsk_...)
         (re.compile(r"(gsk_[A-Za-z0-9]{6})[A-Za-z0-9]+", re.IGNORECASE), r"\1...[REDACTED]"),
     ]

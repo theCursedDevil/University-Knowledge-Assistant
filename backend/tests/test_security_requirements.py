@@ -33,7 +33,7 @@ settings = get_settings()
 
 def test_security_headers_present_on_all_responses(client: TestClient):
     """Verifies that all API responses include OWASP recommended security headers."""
-    response = client.get("/health")
+    response = client.get("/api/v1/health")
     assert response.status_code == 200
 
     headers = response.headers
@@ -48,7 +48,7 @@ def test_cors_restricted_to_frontend_origin(client: TestClient):
     """Verifies that CORS only allows configured frontend origins and rejects malicious origins."""
     # 1. Legitimate origin (http://localhost:3000)
     allowed_resp = client.options(
-        "/health",
+        "/api/v1/health",
         headers={
             "Origin": "http://localhost:3000",
             "Access-Control-Request-Method": "GET",
@@ -58,7 +58,7 @@ def test_cors_restricted_to_frontend_origin(client: TestClient):
 
     # 2. Malicious / unauthorized origin
     rejected_resp = client.options(
-        "/health",
+        "/api/v1/health",
         headers={
             "Origin": "http://malicious-phishing-site.com",
             "Access-Control-Request-Method": "GET",
@@ -106,7 +106,7 @@ def test_rate_limiting_enforced_on_chat_endpoint(client: TestClient):
     try:
         # Create conversation
         conv_resp = client.post(
-            "/conversations",
+            "/api/v1/conversations",
             json={"title": "Rate Limit Test"},
             headers={"X-Dev-Role": "student", "X-Dev-Email": "ratelimit_user@university.edu"},
         )
@@ -122,15 +122,15 @@ def test_rate_limiting_enforced_on_chat_endpoint(client: TestClient):
             settings.RATE_LIMIT_LLM_RPM = 2
 
             # 1st query succeeds
-            r1 = client.post(f"/conversations/{conv_id}/messages", json={"content": "Query 1"}, headers=user_headers)
+            r1 = client.post(f"/api/v1/conversations/{conv_id}/messages", json={"content": "Query 1"}, headers=user_headers)
             assert r1.status_code == 201
 
             # 2nd query succeeds
-            r2 = client.post(f"/conversations/{conv_id}/messages", json={"content": "Query 2"}, headers=user_headers)
+            r2 = client.post(f"/api/v1/conversations/{conv_id}/messages", json={"content": "Query 2"}, headers=user_headers)
             assert r2.status_code == 201
 
             # 3rd query exceeds limit -> HTTP 429
-            r3 = client.post(f"/conversations/{conv_id}/messages", json={"content": "Query 3"}, headers=user_headers)
+            r3 = client.post(f"/api/v1/conversations/{conv_id}/messages", json={"content": "Query 3"}, headers=user_headers)
             assert r3.status_code == 429
             assert "Retry-After" in r3.headers
             err_data = r3.json()

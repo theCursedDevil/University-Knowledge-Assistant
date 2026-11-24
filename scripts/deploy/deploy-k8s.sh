@@ -28,39 +28,22 @@ echo "=================================================="
 
 # Check if kubectl is available
 if ! command -v kubectl &> /dev/null; then
-    echo "WARNING: 'kubectl' command not found. Skipping Kubernetes deployment."
-    exit 0
+    echo "ERROR: 'kubectl' command not found; deployment cannot proceed." >&2
+    exit 1
 fi
 
 # Verify cluster connectivity
 echo "Checking Kubernetes cluster connectivity..."
 if ! kubectl cluster-info --request-timeout=5s &> /dev/null; then
-    echo "========================================================================"
-    echo "NOTICE: Kubernetes cluster is not accessible from the current environment."
-    echo ""
-    echo "Reason: If running on a GitHub-hosted runner, GitHub cloud runners"
-    echo "cannot directly access local Minikube running on your Mac."
-    echo ""
-    echo "To deploy published GHCR images to your local Minikube cluster:"
-    echo "1. On your Mac, ensure Minikube is running:"
-    echo "   minikube status"
-    echo ""
-    echo "2. Update deployment images to the published build tag (${IMAGE_TAG}):"
-    echo "   kubectl set image deployment/backend backend=${BACKEND_IMAGE}"
-    echo "   kubectl set image deployment/frontend frontend=${FRONTEND_IMAGE}"
-    echo ""
-    echo "3. Verify the rollout:"
-    echo "   kubectl rollout status deployment/backend --timeout=120s"
-    echo "   kubectl rollout status deployment/frontend --timeout=120s"
-    echo "========================================================================"
-    exit 0
+    echo "ERROR: Kubernetes cluster is unreachable; refusing to report a successful deployment." >&2
+    exit 1
 fi
 
 echo "Cluster is reachable. Proceeding with rolling update..."
 
 # Update deployment container images
-kubectl set image deployment/backend backend="${BACKEND_IMAGE}" --record=true || true
-kubectl set image deployment/frontend frontend="${FRONTEND_IMAGE}" --record=true || true
+kubectl set image deployment/backend backend="${BACKEND_IMAGE}"
+kubectl set image deployment/frontend frontend="${FRONTEND_IMAGE}"
 
 # Verify rolling update status
 echo "Verifying backend rollout status..."

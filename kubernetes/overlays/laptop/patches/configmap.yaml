@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: uka-config
+data:
+  ENVIRONMENT: development
+  DEBUG: 'false'
+  CORS_ORIGINS: '["http://localhost:3000"]'
+  DB_READ_REPLICAS_ENABLED: 'false'
+  KEYCLOAK_PUBLIC_URL: http://localhost:8080
+  KEYCLOAK_ISSUER: http://localhost:8080/realms/university-realm
+  KEYCLOAK_REDIRECT_URI: http://localhost:3000/auth/callback
+  NEXT_PUBLIC_API_URL: http://localhost:8000/api/v1
+  NEXT_PUBLIC_KEYCLOAK_URL: http://localhost:8080
+  NEXT_PUBLIC_DEV_LOGIN: 'false'
+  RAG_TOP_K: '4'
+  EMBEDDING_BATCH_SIZE: '8'
+  EMBEDDING_NUM_THREADS: '1'
+  RAG_INGESTION_BATCH_SIZE: '8'
+  RAG_MAX_CONCURRENT_INGESTIONS: '1'
+  MAX_UPLOAD_SIZE_BYTES: '10485760'
+  HF_HUB_OFFLINE: '1'
+  TRANSFORMERS_OFFLINE: '1'

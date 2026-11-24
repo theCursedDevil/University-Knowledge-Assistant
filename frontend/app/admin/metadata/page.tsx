@@ -75,8 +75,7 @@ export default function MetadataManagementPage() {
     const matchesSearch =
       !query ||
       d.title.toLowerCase().includes(query) ||
-      d.category.toLowerCase().includes(query) ||
-      d.storage_path.toLowerCase().includes(query);
+      d.category.toLowerCase().includes(query);
     const matchesCat = selectedCategory === "ALL" || d.category === selectedCategory;
     const matchesStatus = selectedStatus === "ALL" || d.status === selectedStatus;
     return matchesSearch && matchesCat && matchesStatus;
@@ -266,7 +265,7 @@ export default function MetadataManagementPage() {
                             </Link>
                           </div>
                           <span className="text-[10px] text-zinc-400 font-mono block truncate">
-                            {doc.storage_path.split("/").pop()}
+                            {doc.title}
                           </span>
                         </td>
                         <td className="py-3 px-4">

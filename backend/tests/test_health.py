@@ -21,7 +21,7 @@ from backend.app.services.external import ExternalServicesConfig
 
 def test_root_health_endpoint(client: TestClient, settings: Settings):
     """Verifies that GET /health returns 200 OK and valid health metadata."""
-    response = client.get("/health")
+    response = client.get("/api/v1/health")
     assert response.status_code == 200
 
     data = response.json()
@@ -30,12 +30,8 @@ def test_root_health_endpoint(client: TestClient, settings: Settings):
     assert data["version"] == settings.VERSION
     assert data["environment"] == settings.ENVIRONMENT
     assert "timestamp" in data
-    assert "services" in data
-    assert "database" in data["services"]
-    assert "redis" in data["services"]
-    assert "qdrant" in data["services"]
-    assert "minio" in data["services"]
-    assert "llm" in data["services"]
+    # Liveness is deliberately minimal; dependency topology is not public.
+    assert set(data) == {"status", "app_name", "version", "timestamp"}
 
 
 def test_api_v1_health_endpoint(client: TestClient, settings: Settings):
@@ -71,7 +67,7 @@ def test_openapi_schema(client: TestClient, settings: Settings):
     assert schema["openapi"].startswith("3.")
     assert schema["info"]["title"] == settings.PROJECT_NAME
     assert schema["info"]["version"] == settings.VERSION
-    assert "/health" in schema["paths"]
+    assert "/api/v1/health" in schema["paths"]
     assert f"{settings.API_V1_PREFIX}/health" in schema["paths"]
 
 

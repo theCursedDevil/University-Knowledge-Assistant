@@ -41,7 +41,7 @@ def generate_admin_test_pdf(title: str = "University Policy") -> bytes:
 
 def test_admin_stats_schema_and_counts(client: TestClient):
     """GET /admin/stats returns all required fields and valid counts."""
-    resp = client.get("/admin/stats", headers={"X-Dev-Role": "admin"})
+    resp = client.get("/api/v1/admin/stats", headers={"X-Dev-Role": "admin"})
     assert resp.status_code == 200
     data = resp.json()
 
@@ -79,7 +79,7 @@ def test_admin_stats_schema_and_counts(client: TestClient):
 def test_admin_audit_logs_query_and_filtering(client: TestClient):
     """GET /admin/audit-logs returns audit events and supports action/entity filters."""
     # 1. Query all recent audit logs
-    resp = client.get("/admin/audit-logs?limit=20", headers={"X-Dev-Role": "admin"})
+    resp = client.get("/api/v1/admin/audit-logs?limit=20", headers={"X-Dev-Role": "admin"})
     assert resp.status_code == 200
     logs = resp.json()
     assert isinstance(logs, list)
@@ -94,7 +94,7 @@ def test_admin_audit_logs_query_and_filtering(client: TestClient):
         assert "user_id" in sample
 
     # 2. Query with action filter
-    upload_logs_resp = client.get("/admin/audit-logs?action=DOCUMENT_UPLOAD", headers={"X-Dev-Role": "admin"})
+    upload_logs_resp = client.get("/api/v1/admin/audit-logs?action=DOCUMENT_UPLOAD", headers={"X-Dev-Role": "admin"})
     assert upload_logs_resp.status_code == 200
     for log in upload_logs_resp.json():
         assert log["action"] == "DOCUMENT_UPLOAD"
@@ -108,7 +108,7 @@ def test_admin_audit_logs_query_and_filtering(client: TestClient):
 @pytest.mark.parametrize("non_admin_role", ["student", "faculty"])
 def test_non_admin_forbidden_on_admin_stats(client: TestClient, non_admin_role: str):
     """Non-admin roles receive HTTP 403 on GET /admin/stats."""
-    resp = client.get("/admin/stats", headers={"X-Dev-Role": non_admin_role})
+    resp = client.get("/api/v1/admin/stats", headers={"X-Dev-Role": non_admin_role})
     assert resp.status_code == 403
     assert "error" in resp.json()
 
@@ -116,19 +116,19 @@ def test_non_admin_forbidden_on_admin_stats(client: TestClient, non_admin_role: 
 @pytest.mark.parametrize("non_admin_role", ["student", "faculty"])
 def test_non_admin_forbidden_on_admin_audit_logs(client: TestClient, non_admin_role: str):
     """Non-admin roles receive HTTP 403 on GET /admin/audit-logs."""
-    resp = client.get("/admin/audit-logs", headers={"X-Dev-Role": non_admin_role})
+    resp = client.get("/api/v1/admin/audit-logs", headers={"X-Dev-Role": non_admin_role})
     assert resp.status_code == 403
 
 
 @pytest.mark.parametrize("non_admin_role", ["student", "faculty"])
 def test_non_admin_forbidden_on_admin_users_api(client: TestClient, non_admin_role: str):
     """Non-admin roles receive HTTP 403 on user management endpoints."""
-    resp = client.get("/admin/users", headers={"X-Dev-Role": non_admin_role})
+    resp = client.get("/api/v1/admin/users", headers={"X-Dev-Role": non_admin_role})
     assert resp.status_code == 403
 
     random_id = uuid.uuid4()
     patch_resp = client.patch(
-        f"/admin/users/{random_id}/role",
+        f"/api/v1/admin/users/{random_id}/role",
         headers={"X-Dev-Role": non_admin_role},
         json={"role": "admin"},
     )
@@ -229,7 +229,7 @@ def test_admin_document_lifecycle_and_audit_provenance(client: TestClient):
     assert del_resp.status_code == 200
 
     # 6. Verify audit logs were created for each step
-    audit_resp = client.get("/admin/audit-logs?entity=documents&limit=20", headers={"X-Dev-Role": "admin"})
+    audit_resp = client.get("/api/v1/admin/audit-logs?entity=documents&limit=20", headers={"X-Dev-Role": "admin"})
     assert audit_resp.status_code == 200
     recent_actions = [log["action"] for log in audit_resp.json() if log.get("entity_id") == doc_id]
     assert "DOCUMENT_UPLOAD" in recent_actions

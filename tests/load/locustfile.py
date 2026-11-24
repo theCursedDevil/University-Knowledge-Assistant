@@ -7,11 +7,12 @@ Simulates concurrent university traffic:
 - Probes system health endpoints
 
 Usage:
-  locust -f tests/load/locustfile.py --headless -u 15 -r 3 --run-time 25s --host http://localhost:8000
+  UKA_LOADTEST_TOKEN=<short-lived-token> locust -f tests/load/locustfile.py --headless -u 15 -r 3 --run-time 25s --host http://localhost:8000
 """
 
+import logging
+import os
 import random
-import requests
 from locust import HttpUser, task, between
 
 
@@ -23,32 +24,13 @@ SAMPLE_QUESTIONS = [
     "What are the library borrowing rules and overdue book fines?",
 ]
 
-# Keycloak Token Cache for load testing efficiency
-_CACHED_TOKEN = None
+def get_test_token():
+    """Read a short-lived token provisioned for the load-test run.
 
-
-def get_keycloak_token():
-    """Fetches and caches an OIDC Bearer token from Keycloak for load testing."""
-    global _CACHED_TOKEN
-    if _CACHED_TOKEN:
-        return _CACHED_TOKEN
-    try:
-        resp = requests.post(
-            "http://localhost:8080/realms/university-realm/protocol/openid-connect/token",
-            data={
-                "client_id": "university-assistant-client",
-                "grant_type": "password",
-                "username": "admin",
-                "password": "AdminPassword123!",
-            },
-            timeout=5.0,
-        )
-        if resp.status_code == 200:
-            _CACHED_TOKEN = resp.json().get("access_token")
-            return _CACHED_TOKEN
-    except Exception:
-        pass
-    return None
+    The Keycloak realm intentionally disables the password grant. Never embed a
+    username/password pair or request an end-user password token from this script.
+    """
+    return os.getenv("UKA_LOADTEST_TOKEN")
 
 
 class UniversityUser(HttpUser):
@@ -58,22 +40,28 @@ class UniversityUser(HttpUser):
 
     def on_start(self):
         """Initializes user session with authenticated Bearer token."""
-        token = get_keycloak_token()
+        token = get_test_token()
+        self.authenticated = bool(token)
         self.headers = {"Authorization": f"Bearer {token}"} if token else {}
+        if not token:
+            logging.warning("UKA_LOADTEST_TOKEN is unset; authenticated tasks will be skipped.")
 
     @task(5)
     def test_health_check(self):
         """Tests system health and liveness endpoint."""
-        self.client.get("/health", name="GET /health")
+        self.client.get("/api/v1/health", name="GET /health")
 
     @task(3)
     def test_list_documents(self):
         """Tests document catalog listing with caching and replica distribution."""
-        self.client.get("/api/v1/documents", headers=self.headers, name="GET /api/v1/documents")
+        if self.authenticated:
+            self.client.get("/api/v1/documents", headers=self.headers, name="GET /api/v1/documents")
 
     @task(2)
     def test_rag_query(self):
         """Tests core RAG search and question-answering workflow."""
+        if not self.authenticated:
+            return
         question = random.choice(SAMPLE_QUESTIONS)
         payload = {
             "question": question,

@@ -35,9 +35,9 @@ def compute_lexical_overlap(query: str, text: str) -> float:
     if not query_tokens:
         return 0.0
 
-    text_lower = text.lower()
-    matches = sum(1 for token in query_tokens if token in text_lower)
-    return round(matches / len(query_tokens), 4)
+    text_tokens = {token.lower() for token in re.findall(r"\b[a-zA-Z0-9_%.-]+\b", text)}
+    matches = sum(1 for token in set(query_tokens) if token in text_tokens)
+    return round(matches / len(set(query_tokens)), 4)
 
 
 class RetrievalResult(BaseModel):
@@ -68,6 +68,7 @@ class VectorRetriever:
         user_role: Optional[str] = None,
         enable_hybrid: Optional[bool] = None,
         alpha: float = 0.70,
+        allowed_document_ids: Optional[List[str]] = None,
     ) -> RetrievalResult:
         """Embeds natural-language query and searches Qdrant for top-k chunks with role-based visibility.
 
@@ -88,9 +89,20 @@ class VectorRetriever:
         threshold = confidence_threshold if confidence_threshold is not None else self.default_threshold
         use_hybrid = enable_hybrid if enable_hybrid is not None else settings.RAG_ENABLE_HYBRID_SEARCH
 
-        # If hybrid retrieval is enabled, fetch a slightly larger candidate set for score fusion
-        fetch_limit = max(k * 2, 10) if use_hybrid else k
+        # An explicit empty allow-list means there are no currently accessible/indexed
+        # database documents. Do not fall back to stale vector-store payloads.
+        if allowed_document_ids is not None and not allowed_document_ids:
+            return RetrievalResult(
+                question=query,
+                chunks=[],
+                top_score=0.0,
+                is_sufficient=False,
+                threshold=threshold,
+                is_hybrid=use_hybrid,
+            )
 
+        # If hybrid retrieval is enabled, fetch a larger dense candidate set for re-ranking.
+        fetch_limit = max(k * 2, 10) if use_hybrid else k
         candidates = vector_store.search(
             query=query,
             limit=fetch_limit,
@@ -98,27 +110,25 @@ class VectorRetriever:
             filter_category=filter_category,
             filter_document_id=filter_document_id,
             user_role=user_role,
+            allowed_document_ids=allowed_document_ids,
         )
 
-        if use_hybrid and candidates:
+        # Confidence is based only on the original dense-vector score. Lexical score is
+        # allowed to reorder eligible results, never to promote an irrelevant vector.
+        top_score = max((chunk.score for chunk in candidates), default=0.0)
+        eligible_candidates = [chunk for chunk in candidates if chunk.score >= threshold]
+        if use_hybrid and eligible_candidates:
             scored_candidates = []
-            for chunk in candidates:
-                lex_score = compute_lexical_overlap(query, chunk.chunk_text)
-                # Blended hybrid score: alpha * vector_score + (1 - alpha) * lexical_score
-                blended_score = round((alpha * chunk.score) + ((1.0 - alpha) * lex_score), 4)
-                # Preserve the boosted score on the chunk
-                boosted_chunk = chunk.model_copy(update={"score": blended_score})
-                scored_candidates.append(boosted_chunk)
-
-            # Re-rank by blended score descending and select final top-k
-            scored_candidates.sort(key=lambda c: c.score, reverse=True)
-            chunks = scored_candidates[:k]
+            for chunk in eligible_candidates:
+                lexical_score = compute_lexical_overlap(query, chunk.chunk_text)
+                blended_score = (alpha * chunk.score) + ((1.0 - alpha) * lexical_score)
+                scored_candidates.append((blended_score, chunk))
+            scored_candidates.sort(key=lambda item: item[0], reverse=True)
+            chunks = [chunk for _, chunk in scored_candidates[:k]]
         else:
-            chunks = candidates[:k]
+            chunks = eligible_candidates[:k]
 
-        top_score = chunks[0].score if chunks else 0.0
-        # Content is sufficient only if at least one chunk exists and top_score >= threshold
-        is_sufficient = bool(chunks) and (top_score >= threshold)
+        is_sufficient = bool(chunks) and top_score >= threshold
 
         logger.info(
             "Retrieved %d chunks for query '%s' (top_score=%.4f, threshold=%.4f, hybrid=%s, sufficient=%s)",

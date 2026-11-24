@@ -4,28 +4,43 @@
  */
 
 export const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+  process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
 
-// Standard Auth Headers Helper
-function getAuthHeaders(role?: string, email?: string): Record<string, string> {
-  const headers: Record<string, string> = {};
-  if (typeof window !== "undefined") {
-    const savedRole = role || localStorage.getItem("uka_user_role") || "student";
-    const savedEmail = email || localStorage.getItem("uka_user_email") || `${savedRole}@university.edu`;
-    const savedToken = localStorage.getItem("uka_access_token");
-    headers["X-Dev-Role"] = savedRole;
-    headers["X-Dev-Email"] = savedEmail;
-    if (savedToken) {
-      headers["Authorization"] = `Bearer ${savedToken}`;
-    } else {
-      headers["Authorization"] = `Bearer dev-token-${savedRole}`;
+// Session credentials are held only in Secure/HttpOnly cookies by the backend.
+// Never mirror bearer or refresh tokens into localStorage or custom headers.
+const nativeFetch = fetch.bind(globalThis);
+
+async function apiFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
+  const requestUrl = typeof input === "string"
+    ? input
+    : input instanceof URL
+      ? input.toString()
+      : input.url;
+  const options: RequestInit = { ...init, credentials: "include" };
+  let response = await nativeFetch(input, options);
+
+  const isAuthEndpoint = /\/auth\/(?:login|token|refresh|logout)(?:$|\?)/.test(requestUrl);
+  if (response.status === 401 && !isAuthEndpoint) {
+    try {
+      const refreshResponse = await nativeFetch(`${API_BASE_URL}/auth/refresh`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: "{}",
+      });
+      if (refreshResponse.ok) {
+        response = await nativeFetch(input, options);
+      }
+    } catch {
+      // Preserve the original 401. The AuthContext will clear the session.
     }
-  } else {
-    headers["X-Dev-Role"] = role || "student";
-    headers["X-Dev-Email"] = email || "student@university.edu";
-    headers["Authorization"] = `Bearer dev-token-${role || "student"}`;
   }
-  return headers;
+  return response;
+}
+
+// Kept as a no-op helper so call sites need not construct identity-derived headers.
+function getAuthHeaders(_role?: string, _email?: string): Record<string, string> {
+  return {};
 }
 
 // ---------------------------------------------------------------------------
@@ -79,7 +94,6 @@ export interface ApiDocument {
   title: string;
   category: string;
   role_restriction?: string | null;
-  storage_path: string;
   uploaded_by?: string | null;
   status: "processing" | "ready" | "indexed" | "failed";
   version: number;
@@ -100,7 +114,6 @@ export interface ApiDocumentPreview {
   category: string;
   role_restriction?: string | null;
   status: string;
-  storage_path: string;
   page_count: number;
   pages: ApiExtractedPage[];
 }
@@ -157,7 +170,7 @@ export interface ApiAdminStats {
 
 export async function fetchCurrentUser(role?: string, email?: string): Promise<ApiUser> {
   const headers = getAuthHeaders(role, email);
-  const res = await fetch(`${API_BASE_URL}/me`, {
+  const res = await apiFetch(`${API_BASE_URL}/me`, {
     headers: { ...headers, "Content-Type": "application/json" },
     credentials: "include",
     cache: "no-store",
@@ -168,8 +181,8 @@ export async function fetchCurrentUser(role?: string, email?: string): Promise<A
   return res.json();
 }
 
-export async function loginUser(email: string, role: string, name?: string): Promise<{ user: ApiUser; access_token: string }> {
-  const res = await fetch(`${API_BASE_URL}/auth/login`, {
+export async function loginUser(email: string, role: string, name?: string): Promise<{ user: ApiUser; access_token?: string | null }> {
+  const res = await apiFetch(`${API_BASE_URL}/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     credentials: "include",
@@ -188,7 +201,7 @@ export async function loginUser(email: string, role: string, name?: string): Pro
 
 export async function fetchConversations(): Promise<ApiConversationSummary[]> {
   const headers = getAuthHeaders();
-  const res = await fetch(`${API_BASE_URL}/conversations`, {
+  const res = await apiFetch(`${API_BASE_URL}/conversations`, {
     headers: { ...headers, "Content-Type": "application/json" },
     cache: "no-store",
   });
@@ -200,7 +213,7 @@ export async function fetchConversations(): Promise<ApiConversationSummary[]> {
 
 export async function createConversation(title?: string): Promise<ApiConversationSummary> {
   const headers = getAuthHeaders();
-  const res = await fetch(`${API_BASE_URL}/conversations`, {
+  const res = await apiFetch(`${API_BASE_URL}/conversations`, {
     method: "POST",
     headers: { ...headers, "Content-Type": "application/json" },
     body: JSON.stringify({ title }),
@@ -213,7 +226,7 @@ export async function createConversation(title?: string): Promise<ApiConversatio
 
 export async function fetchConversationDetail(id: string): Promise<ApiConversationDetail> {
   const headers = getAuthHeaders();
-  const res = await fetch(`${API_BASE_URL}/conversations/${id}`, {
+  const res = await apiFetch(`${API_BASE_URL}/conversations/${id}`, {
     headers: { ...headers, "Content-Type": "application/json" },
     cache: "no-store",
   });
@@ -225,7 +238,7 @@ export async function fetchConversationDetail(id: string): Promise<ApiConversati
 
 export async function deleteConversation(id: string): Promise<void> {
   const headers = getAuthHeaders();
-  const res = await fetch(`${API_BASE_URL}/conversations/${id}`, {
+  const res = await apiFetch(`${API_BASE_URL}/conversations/${id}`, {
     method: "DELETE",
     headers,
   });
@@ -256,7 +269,7 @@ export async function streamChatMessage({
   const headers = getAuthHeaders();
 
   try {
-    const res = await fetch(
+    const res = await apiFetch(
       `${API_BASE_URL}/conversations/${conversationId}/messages?stream=true`,
       {
         method: "POST",
@@ -355,7 +368,7 @@ export async function fetchDocuments(category?: string): Promise<ApiDocument[]> 
     ? `${API_BASE_URL}/documents?category=${encodeURIComponent(category)}`
     : `${API_BASE_URL}/documents`;
 
-  const res = await fetch(url, {
+  const res = await apiFetch(url, {
     headers: { ...headers, "Content-Type": "application/json" },
     cache: "no-store",
   });
@@ -367,7 +380,7 @@ export async function fetchDocuments(category?: string): Promise<ApiDocument[]> 
 
 export async function fetchDocumentById(id: string): Promise<ApiDocument> {
   const headers = getAuthHeaders();
-  const res = await fetch(`${API_BASE_URL}/documents/${id}`, {
+  const res = await apiFetch(`${API_BASE_URL}/documents/${id}`, {
     headers: { ...headers, "Content-Type": "application/json" },
     cache: "no-store",
   });
@@ -379,7 +392,7 @@ export async function fetchDocumentById(id: string): Promise<ApiDocument> {
 
 export async function fetchDocumentPreview(id: string): Promise<ApiDocumentPreview> {
   const headers = getAuthHeaders();
-  const res = await fetch(`${API_BASE_URL}/documents/${id}/preview`, {
+  const res = await apiFetch(`${API_BASE_URL}/documents/${id}/preview`, {
     headers: { ...headers, "Content-Type": "application/json" },
     cache: "no-store",
   });
@@ -391,7 +404,7 @@ export async function fetchDocumentPreview(id: string): Promise<ApiDocumentPrevi
 
 export async function fetchDocumentChunks(id: string): Promise<ApiDocumentChunk[]> {
   const headers = getAuthHeaders();
-  const res = await fetch(`${API_BASE_URL}/documents/${id}/chunks`, {
+  const res = await apiFetch(`${API_BASE_URL}/documents/${id}/chunks`, {
     headers: { ...headers, "Content-Type": "application/json" },
     cache: "no-store",
   });
@@ -405,7 +418,7 @@ export async function uploadDocument(formData: FormData, autoProcess = true): Pr
   const headers = getAuthHeaders();
   const url = `${API_BASE_URL}/documents?auto_process=${autoProcess}`;
 
-  const res = await fetch(url, {
+  const res = await apiFetch(url, {
     method: "POST",
     headers, // Do NOT set Content-Type so browser sets multipart boundary
     credentials: "include",
@@ -420,7 +433,7 @@ export async function uploadDocument(formData: FormData, autoProcess = true): Pr
 
 export async function processDocument(id: string): Promise<any> {
   const headers = getAuthHeaders();
-  const res = await fetch(`${API_BASE_URL}/documents/${id}/process`, {
+  const res = await apiFetch(`${API_BASE_URL}/documents/${id}/process`, {
     method: "POST",
     headers,
     credentials: "include",
@@ -437,7 +450,7 @@ export async function updateDocumentMetadata(
   payload: { title?: string; category?: string; role_restriction?: string; expected_version?: number }
 ): Promise<ApiDocument> {
   const headers = getAuthHeaders();
-  const res = await fetch(`${API_BASE_URL}/documents/${id}`, {
+  const res = await apiFetch(`${API_BASE_URL}/documents/${id}`, {
     method: "PATCH",
     headers: { ...headers, "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -457,7 +470,7 @@ export async function updateDocumentMetadata(
 
 export async function deleteDocument(id: string): Promise<void> {
   const headers = getAuthHeaders();
-  const res = await fetch(`${API_BASE_URL}/documents/${id}`, {
+  const res = await apiFetch(`${API_BASE_URL}/documents/${id}`, {
     method: "DELETE",
     headers,
   });
@@ -473,7 +486,7 @@ export async function searchSemanticDocuments(
   category?: string
 ): Promise<ApiSearchResult[]> {
   const headers = getAuthHeaders();
-  const res = await fetch(`${API_BASE_URL}/documents/search`, {
+  const res = await apiFetch(`${API_BASE_URL}/documents/search`, {
     method: "POST",
     headers: { ...headers, "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -494,7 +507,7 @@ export async function searchSemanticDocuments(
 
 export async function fetchAdminStats(): Promise<ApiAdminStats> {
   const headers = getAuthHeaders();
-  const res = await fetch(`${API_BASE_URL}/admin/stats`, {
+  const res = await apiFetch(`${API_BASE_URL}/admin/stats`, {
     headers: { ...headers, "Content-Type": "application/json" },
     cache: "no-store",
   });
@@ -519,7 +532,7 @@ export async function fetchAdminAuditLogs(params?: {
   if (params?.offset) query.set("offset", String(params.offset));
 
   const url = `${API_BASE_URL}/admin/audit-logs${query.toString() ? `?${query.toString()}` : ""}`;
-  const res = await fetch(url, {
+  const res = await apiFetch(url, {
     headers: { ...headers, "Content-Type": "application/json" },
     cache: "no-store",
   });
@@ -532,7 +545,7 @@ export async function fetchAdminAuditLogs(params?: {
 
 export async function fetchAdminUsers(): Promise<ApiUser[]> {
   const headers = getAuthHeaders();
-  const res = await fetch(`${API_BASE_URL}/admin/users`, {
+  const res = await apiFetch(`${API_BASE_URL}/admin/users`, {
     headers: { ...headers, "Content-Type": "application/json" },
     cache: "no-store",
   });
@@ -545,7 +558,7 @@ export async function fetchAdminUsers(): Promise<ApiUser[]> {
 
 export async function updateAdminUserRole(userId: string, role: string): Promise<ApiUser> {
   const headers = getAuthHeaders();
-  const res = await fetch(`${API_BASE_URL}/admin/users/${userId}/role`, {
+  const res = await apiFetch(`${API_BASE_URL}/admin/users/${userId}/role`, {
     method: "PATCH",
     headers: { ...headers, "Content-Type": "application/json" },
     credentials: "include",
@@ -569,7 +582,7 @@ export interface KeycloakConfig {
 }
 
 export async function fetchKeycloakConfig(): Promise<KeycloakConfig> {
-  const res = await fetch(`${API_BASE_URL}/auth/config`, {
+  const res = await apiFetch(`${API_BASE_URL}/auth/config`, {
     cache: "no-store",
     credentials: "include",
   });
@@ -583,8 +596,8 @@ export async function exchangeAuthCode(
   code: string,
   codeVerifier: string,
   redirectUri: string
-): Promise<{ user: ApiUser; access_token: string }> {
-  const res = await fetch(`${API_BASE_URL}/auth/token`, {
+): Promise<{ user: ApiUser; access_token?: string | null }> {
+  const res = await apiFetch(`${API_BASE_URL}/auth/token`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     credentials: "include",
@@ -601,8 +614,8 @@ export async function exchangeAuthCode(
   return res.json();
 }
 
-export async function refreshAuthSession(): Promise<{ user: ApiUser; access_token: string }> {
-  const res = await fetch(`${API_BASE_URL}/auth/refresh`, {
+export async function refreshAuthSession(): Promise<{ user: ApiUser; access_token?: string | null }> {
+  const res = await apiFetch(`${API_BASE_URL}/auth/refresh`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     credentials: "include",
@@ -615,10 +628,10 @@ export async function refreshAuthSession(): Promise<{ user: ApiUser; access_toke
 }
 
 export async function logoutBackend(): Promise<void> {
-  await fetch(`${API_BASE_URL}/auth/logout`, {
+  await apiFetch(`${API_BASE_URL}/auth/logout`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     credentials: "include",
     body: JSON.stringify({}),
-  }).catch(() => {});
+  }).catch(() => { });
 }
