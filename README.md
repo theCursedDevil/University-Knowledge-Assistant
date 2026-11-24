@@ -4,8 +4,6 @@ A university-document question-answering application built around Retrieval-Augm
 
 This repository contains the Next.js frontend, FastAPI backend, database migrations, Docker Compose stack, Kubernetes manifests, monitoring configuration, and verification scripts.
 
-> **Recommended for an 8 GB Apple Silicon Mac:** use the default Docker Compose profile for the everyday demo, or `kubernetes/overlays/laptop` for a local Kubernetes demonstration. Do not run both stacks at the same time on the laptop.
-
 ## Contents
 
 - [Features](#features)
